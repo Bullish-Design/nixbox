@@ -2,12 +2,20 @@
 
 import fnmatch
 import re
-from typing import Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
-from agentfs_sdk import AgentFS
 from pydantic import BaseModel, Field
 
 from .models import FileEntry, FileStats
+
+if TYPE_CHECKING:
+    from agentfs_sdk import AgentFS
+else:
+    try:
+        from agentfs_sdk import AgentFS
+    except ImportError:
+        # AgentFS is optional - only needed for actual filesystem operations
+        AgentFS = Any  # type: ignore
 
 
 class ViewQuery(BaseModel):

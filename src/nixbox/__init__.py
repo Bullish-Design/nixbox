@@ -1,4 +1,8 @@
-"""AgentFS Pydantic Models - Type-safe models for AgentFS SDK."""
+"""nixbox - AgentFS + devenv.sh dev environment management library.
+
+This library provides type-safe Pydantic models for AgentFS SDK and utilities
+for managing devenv.sh-based development environments with filesystem sandboxing.
+"""
 
 from .models import (
     AgentFSOptions,

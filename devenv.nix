@@ -155,8 +155,15 @@ INFO
   '';
 
   scripts.link-abs-to-repo.exec = ''
-    exec uv run --script ./scripts/link_abs_to_repo.py /home/andrew/Documents/Projects/vendor/"$@" ./.devenv/store/vendor/"$@"
-'';
+    # Usage: link-abs-to-repo <src-path> [<dest-rel-path>]
+    # Environment variable VENDOR_PATH can override the default vendor source directory
+    VENDOR_SRC_DIR="''${VENDOR_PATH:-$HOME/vendor}"
+    if [ "$#" -eq 1 ]; then
+      exec uv run --script ./scripts/link_abs_to_repo.py "$VENDOR_SRC_DIR/$1" ./.devenv/store/vendor/"$1"
+    else
+      exec uv run --script ./scripts/link_abs_to_repo.py "$@"
+    fi
+  '';
 
   scripts.link-agentfs.exec = ''
     exec link-abs-to-repo agentfs

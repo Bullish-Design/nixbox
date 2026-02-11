@@ -1,14 +1,14 @@
-"""Example usage of agentfs-pydantic library."""
+"""Example usage of nixbox library."""
 
 import asyncio
 from datetime import datetime
 
 from agentfs_sdk import AgentFS
-from agentfs_pydantic import AgentFSOptions, View, ViewQuery
+from nixbox import AgentFSOptions, View, ViewQuery
 
 
 async def main():
-    """Demonstrate basic usage of agentfs-pydantic."""
+    """Demonstrate basic usage of nixbox."""
 
     # Example 1: Create AgentFS with validated options
     print("=" * 60)

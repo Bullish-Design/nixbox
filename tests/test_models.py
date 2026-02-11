@@ -1,9 +1,9 @@
-"""Tests for agentfs_pydantic models."""
+"""Tests for nixbox models."""
 
 from datetime import datetime
 
 import pytest
-from agentfs_pydantic import (
+from nixbox import (
     AgentFSOptions,
     FileEntry,
     FileStats,

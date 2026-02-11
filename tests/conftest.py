@@ -1,4 +1,4 @@
-"""Pytest configuration for agentfs_pydantic tests."""
+"""Pytest configuration for nixbox tests."""
 
 import pytest
 
