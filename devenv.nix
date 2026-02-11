@@ -1,23 +1,91 @@
-{ pkgs, config, ... }:
+{ inputs, pkgs, config, ... }:
 
 let
   lib = pkgs.lib;
   root = config.git.root;
-  agentfsFlakeRef = "github:tursodatabase/agentfs";
-  agentfsPackage = (builtins.getFlake agentfsFlakeRef).packages.${pkgs.system}.default;
+
+  system = pkgs.stdenv.system;
+
+  # Fenix nightly toolchain profile (complete = nightly complete profile)
+  fenixToolchain = inputs.fenix.packages.${system}.complete;
+
+  # Add the nixpkgs rustc metadata that buildRustPackage expects
+  fenixRustcForBuildRustPackage =
+    fenixToolchain.rustc
+    // {
+      targetPlatforms = pkgs.rustc.targetPlatforms;
+      badTargetPlatforms = pkgs.rustc.badTargetPlatforms or [ ];
+    };
+
+  agentfsRustPlatform = pkgs.makeRustPlatform {
+    cargo = fenixToolchain.cargo;
+    rustc = fenixRustcForBuildRustPackage;
+  };
+
 
   envOrDefault = name: default:
     let v = builtins.getEnv name;
     in if v != "" then v else default;
+ 
+  # IMPORTANT: use a path literal, not "${root}/..."
+  agentfsPath = ./.devman/store/vendor/agentfs;  # or ./vendor/agentfs, etc.
 
-  # Enabled unless explicitly disabled: AGENTFS_ENABLED=0
+  agentfsSrc = builtins.path {
+    path = agentfsPath;
+    name = "agentfs-src";
+  };
+
+  # Pure-safe: derived from the evaluated devenv config, not host env
   agentfsEnabled = (config.env.AGENTFS_ENABLED or "1") != "0";
   agentfsEnabledLabel = if agentfsEnabled then "yes" else "no";
 
+  cargoToml = builtins.fromTOML (builtins.readFile (agentfsSrc + "/cli/Cargo.toml"));
+
+  
+  agentfsPackage = agentfsRustPlatform.buildRustPackage {
+    pname = cargoToml.package.name;
+    inherit (cargoToml.package) version;
+    src = agentfsSrc;
+
+
+#    preCheck = ''
+#      export LD_LIBRARY_PATH=${pkgs.lib.makeLibraryPath [
+#        pkgs.openssl
+#        # if anything else shows up later, add it here
+#      ]}:$LD_LIBRARY_PATH
+#    '';
+
+#    postFixup = ''
+#      # Ensure installed binaries can find OpenSSL at runtime (no LD_LIBRARY_PATH needed)
+#      for bin in $out/bin/*; do
+#        if [ -x "$bin" ] && file "$bin" | grep -q ELF; then
+#          patchelf --add-rpath ${pkgs.lib.makeLibraryPath [ pkgs.openssl ]} "$bin" || true
+#        fi
+#      done
+#    '';
+
+    cargoLock.lockFile = agentfsSrc + "/cli/Cargo.lock";
+    cargoLock.outputHashes = {
+      "reverie-0.1.0" = "sha256-TxjOCsH2vPwwqG+19ByyRsf4tkSn6/xXzuHxkNWgnek=";
+    };
+
+    buildAndTestSubdir = "cli";
+    postUnpack = "cp $sourceRoot/cli/Cargo.lock $sourceRoot/Cargo.lock";
+    buildNoDefaultFeatures = !pkgs.stdenv.isLinux;
+
+    nativeBuildInputs = [ pkgs.pkg-config ];
+    buildInputs = with pkgs; [ openssl ]
+      ++ pkgs.lib.optionals pkgs.stdenv.isLinux [ fuse3 libunwind ];
+
+    doCheck = false;
+  
+  };
+
+
   agentfsServe = ''
-    cd "${root}"
+    cd "${toString root}"
     mkdir -p "$AGENTFS_DATA_DIR"
-    exec turso agentfs serve \
+    exec ${pkgs.turso-cli}/bin/turso agentfs serve \
       --host "$AGENTFS_HOST" \
       --port "$AGENTFS_PORT" \
       --data-dir "$AGENTFS_DATA_DIR" \
@@ -25,6 +93,7 @@ let
       --log-level "$AGENTFS_LOG_LEVEL" \
       $AGENTFS_EXTRA_ARGS
   '';
+
 in
 {
   packages = with pkgs; [
@@ -85,6 +154,14 @@ INFO
     exec ${agentfsPackage}/bin/agentfs "$@"
   '';
 
+  scripts.link-abs-to-repo.exec = ''
+    exec uv run --script ./scripts/link_abs_to_repo.py /home/andrew/Documents/Projects/vendor/"$@" ./.devenv/store/vendor/"$@"
+'';
+
+  scripts.link-agentfs.exec = ''
+    exec link-abs-to-repo agentfs
+  '';
+
   enterShell = ''
     echo
     echo --------------------------------------------------------
@@ -103,6 +180,8 @@ INFO
     cd "${root}"
     echo "PWD: $(pwd)"
     echo
-    devenv run agentfs-info
+    agentfs-info
+    echo
+    echo
   '';
 }
