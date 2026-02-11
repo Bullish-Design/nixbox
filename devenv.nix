@@ -1,56 +1,57 @@
-{ pkgs, lib, config, inputs, ... }:
+{ pkgs, lib, ... }:
 
+let
+  enabled = builtins.getEnv "AGENTFS_ENABLED" != "0";
+in
 {
-  # https://devenv.sh/basics/
-  env.GREET = "devenv";
+  packages = [
+    pkgs.git
+    pkgs.curl
+    pkgs.turso-cli
+  ];
 
-  # https://devenv.sh/packages/
-  packages = [ 
-    pkgs.git 
-    pkgs.uv
-    ];
+  env = {
+    AGENTFS_ENABLED = lib.mkDefault "1";
+    AGENTFS_HOST = lib.mkDefault "127.0.0.1";
+    AGENTFS_PORT = lib.mkDefault "8081";
+    AGENTFS_DATA_DIR = lib.mkDefault ".devenv/state/agentfs";
+    AGENTFS_DB_NAME = lib.mkDefault "sandbox";
+    AGENTFS_LOG_LEVEL = lib.mkDefault "info";
+    AGENTFS_EXTRA_ARGS = lib.mkDefault "";
+  };
 
-  # https://devenv.sh/languages/
-  # languages.rust.enable = true;
-  languages = {
-      python = {
-          enable = true;
-          version = "3.13";
-          venv.enable = true;
-          uv.enable = true;
-        };
-    };
+  processes.agentfs = lib.mkIf enabled {
+    exec = ''
+      mkdir -p "$AGENTFS_DATA_DIR"
+      exec turso agentfs serve \
+        --host "$AGENTFS_HOST" \
+        --port "$AGENTFS_PORT" \
+        --data-dir "$AGENTFS_DATA_DIR" \
+        --db "$AGENTFS_DB_NAME" \
+        --log-level "$AGENTFS_LOG_LEVEL" \
+        $AGENTFS_EXTRA_ARGS
+    '';
+  };
 
-  # https://devenv.sh/processes/
-  # processes.cargo-watch.exec = "cargo-watch";
+  scripts.agentfs-info.exec = ''
+    cat <<INFO
+AgentFS process configuration
+-----------------------------
+Enabled:   $AGENTFS_ENABLED
+Host:      $AGENTFS_HOST
+Port:      $AGENTFS_PORT
+Data dir:  $AGENTFS_DATA_DIR
+DB name:   $AGENTFS_DB_NAME
+Log level: $AGENTFS_LOG_LEVEL
+Extra:     $AGENTFS_EXTRA_ARGS
+INFO
+  '';
 
-  # https://devenv.sh/services/
-  # services.postgres.enable = true;
-
-  # https://devenv.sh/scripts/
-  scripts.hello.exec = ''
-    echo hello from $GREET
+  scripts.agentfs-url.exec = ''
+    echo "http://$AGENTFS_HOST:$AGENTFS_PORT"
   '';
 
   enterShell = ''
-    hello
-    git --version
+    devenv run agentfs-info
   '';
-
-  # https://devenv.sh/tasks/
-  # tasks = {
-  #   "myproj:setup".exec = "mytool build";
-  #   "devenv:enterShell".after = [ "myproj:setup" ];
-  # };
-
-  # https://devenv.sh/tests/
-  enterTest = ''
-    echo "Running tests"
-    git --version | grep --color=auto "${pkgs.git.version}"
-  '';
-
-  # https://devenv.sh/pre-commit-hooks/
-  # pre-commit.hooks.shellcheck.enable = true;
-
-  # See full reference at https://devenv.sh/reference/options/
 }
