@@ -1,11 +1,8 @@
-# devenv-agentfs
+# nixbox
 
-`devenv-agentfs` is now a **devenv.sh modular plugin template** for running a local
+`nixbox` is now a **devenv.sh modular plugin template** for running a local
 [AgentFS](https://docs.turso.tech/agentfs/introduction) database process inside sandboxed development
 filesystems.
-
-The repo no longer models a Python package template. It now focuses on declarative
-`devenv.sh` configuration only.
 
 ## What this plugin provides
 
