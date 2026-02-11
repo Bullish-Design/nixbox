@@ -3,6 +3,8 @@
 let
   lib = pkgs.lib;
   root = config.git.root;
+  agentfsFlakeRef = "github:tursodatabase/agentfs";
+  agentfsPackage = (builtins.getFlake agentfsFlakeRef).packages.${pkgs.system}.default;
 
   envOrDefault = name: default:
     let v = builtins.getEnv name;
@@ -29,6 +31,7 @@ in
     git
     curl
     turso-cli
+    agentfsPackage
 
     # QoL tooling
     jq
@@ -78,6 +81,10 @@ INFO
     echo "http://$AGENTFS_HOST:$AGENTFS_PORT"
   '';
 
+  scripts.agentfs-cli.exec = ''
+    exec ${agentfsPackage}/bin/agentfs "$@"
+  '';
+
   enterShell = ''
     echo
     echo --------------------------------------------------------
@@ -87,6 +94,7 @@ INFO
     echo " Useful commands:"
     echo "   agentfs-info   # show current AgentFS config"
     echo "   agentfs-url    # print the base URL"
+    echo "   agentfs-cli    # run the upstream agentfs CLI"
     echo "   agentfs        # run AgentFS in the foreground"
     echo "   devenv up       # run background processes (includes agentfs)"
     echo
@@ -98,4 +106,3 @@ INFO
     devenv run agentfs-info
   '';
 }
-
