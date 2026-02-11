@@ -11,6 +11,7 @@ The repo no longer models a Python package template. It now focuses on declarati
 
 - A configurable `agentfs` process under `processes.agentfs`.
 - Built-in environment variables for all runtime knobs.
+- The upstream `agentfs` CLI available directly in the dev shell.
 - Helper scripts to inspect or connect to the local AgentFS instance.
 - A layout that can be copied into any devenv project and split into modules.
 
@@ -61,6 +62,7 @@ something like `modules/agentfs.nix` and importing it from your own `devenv.nix`
 
 ## Notes
 
+- `devenv.nix` pins the upstream AgentFS flake (`github:tursodatabase/agentfs`) and exposes its default package in `packages`, so the `agentfs` binary is always available in-shell.
 - This template expects a Turso CLI that supports AgentFS subcommands.
 - If your CLI version differs, adjust `processes.agentfs.exec` and keep all options in
   `env` variables so downstream projects remain declarative.
