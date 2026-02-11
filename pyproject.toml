@@ -10,3 +10,8 @@ authors = [{ name = "Bullish Design" }]
 [tool.ruff]
 line-length = 120
 target-version = "py311"
+
+[tool.uv.workspace]
+members = [
+    "agentfs-pydantic",
+]
