@@ -1,5 +1,5 @@
 [project]
-name = "devenv-agentfs"
+name = "nixbox"
 version = "0.1.0"
 description = "devenv.sh modular plugin template for running a local Turso AgentFS process"
 readme = "README.md"
@@ -13,5 +13,8 @@ target-version = "py311"
 
 [tool.uv.workspace]
 members = [
-    "agentfs-pydantic",
+    "nixbox",
 ]
+
+[tool.uv]
+prerelease = "allow"

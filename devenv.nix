@@ -48,21 +48,21 @@ let
     src = agentfsSrc;
 
 
-#    preCheck = ''
-#      export LD_LIBRARY_PATH=${pkgs.lib.makeLibraryPath [
-#        pkgs.openssl
-#        # if anything else shows up later, add it here
-#      ]}:$LD_LIBRARY_PATH
-#    '';
+    preCheck = ''
+      export LD_LIBRARY_PATH=${pkgs.lib.makeLibraryPath [
+        pkgs.openssl
+        # if anything else shows up later, add it here
+      ]}:$LD_LIBRARY_PATH
+    '';
 
-#    postFixup = ''
-#      # Ensure installed binaries can find OpenSSL at runtime (no LD_LIBRARY_PATH needed)
-#      for bin in $out/bin/*; do
-#        if [ -x "$bin" ] && file "$bin" | grep -q ELF; then
-#          patchelf --add-rpath ${pkgs.lib.makeLibraryPath [ pkgs.openssl ]} "$bin" || true
-#        fi
-#      done
-#    '';
+    postFixup = ''
+      # Ensure installed binaries can find OpenSSL at runtime (no LD_LIBRARY_PATH needed)
+      for bin in $out/bin/*; do
+        if [ -x "$bin" ] && file "$bin" | grep -q ELF; then
+          patchelf --add-rpath ${pkgs.lib.makeLibraryPath [ pkgs.openssl ]} "$bin" || true
+        fi
+      done
+    '';
 
     cargoLock.lockFile = agentfsSrc + "/cli/Cargo.lock";
     cargoLock.outputHashes = {
@@ -128,7 +128,7 @@ in
   };
 
   # Stable command interfaces live here; workflow tweaks can live elsewhere.
-  scripts.agentfs.exec = agentfsServe;
+  #scripts.agentfs.exec = agentfsServe;
 
   scripts.agentfs-info.exec = ''
     cd "${root}"
