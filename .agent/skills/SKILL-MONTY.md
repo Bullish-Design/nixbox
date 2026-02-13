@@ -662,7 +662,100 @@ async def ask_llm(prompt: str, context: str = "") -> str:
 - [SPEC.md](../../SPEC.md) - Execution layer architecture
 - [SKILL-AGENTFS.md](SKILL-AGENTFS.md) - Storage layer
 
+## Cairn Implementation (Step 2 Complete)
+
+The Cairn execution layer has been implemented in the `cairn/` directory:
+
+### Available Modules
+
+```python
+from cairn import (
+    AgentExecutor,
+    CodeGenerator,
+    ExecutionResult,
+    ExternalFunctions,
+    RetryStrategy,
+    create_external_functions,
+)
+```
+
+### Using the Executor
+
+```python
+from cairn.executor import AgentExecutor
+from cairn.external_functions import create_external_functions
+
+# Setup external functions
+ext_funcs = create_external_functions(
+    agent_id="my-agent",
+    agent_fs=agent_fs,
+    stable_fs=stable_fs,
+    llm_provider=llm_provider
+)
+
+# Execute agent code
+executor = AgentExecutor(
+    max_execution_time=60,
+    max_memory_bytes=100 * 1024 * 1024,
+    max_recursion_depth=1000
+)
+
+result = await executor.execute(
+    code=agent_code,
+    external_functions=ext_funcs,
+    agent_id="my-agent"
+)
+
+if result.success:
+    print(f"Success! Result: {result.return_value}")
+else:
+    print(f"Failed: {result.error} ({result.error_type})")
+```
+
+### Generating Agent Code
+
+```python
+from cairn.code_generator import CodeGenerator
+
+generator = CodeGenerator(model="gpt-4")
+
+# Generate code for task
+code = await generator.generate("Add docstrings to all functions")
+
+# Validate code
+is_valid, error = generator.validate_code(code)
+if not is_valid:
+    print(f"Validation error: {error}")
+```
+
+### Using Retry Logic
+
+```python
+from cairn.retry import CodeGenerationRetry
+
+# Create retry strategy
+retry = CodeGenerationRetry(
+    max_attempts=3,
+    code_generator=generator
+)
+
+# Generate with retry on validation failures
+code = await retry.generate_with_retry(
+    task="Add type hints",
+    validator=executor.validate_code
+)
+```
+
+### Example Agent Code
+
+See `examples/cairn/` for complete examples:
+- `add_docstrings.py` - Add docstrings to functions
+- `fix_todos.py` - Implement TODO comments
+- `add_type_hints.py` - Add type hints to functions
+
 ## See Also
 
 - [SKILL-AGENTFS.md](SKILL-AGENTFS.md) - For implementing external functions
 - [SKILL-JJ.md](SKILL-JJ.md) - For VCS integration
+- [../examples/cairn/](../../examples/cairn/) - Example agent code
+- [../cairn/](../../cairn/) - Cairn execution layer implementation

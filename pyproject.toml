@@ -9,6 +9,9 @@ authors = [{ name = "Bullish Design" }]
 dependencies = [
     "agentfs-sdk>=0.6.0",
     "agentfs-pydantic",
+    "pydantic-monty>=0.0.4",
+    "llm>=0.13.0",
+    "watchfiles>=0.20.0",
 ]
 
 [project.optional-dependencies]
@@ -26,7 +29,7 @@ target-version = "py311"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["agentfs-pydantic/tests"]
+testpaths = ["agentfs-pydantic/tests", "tests"]
 python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
