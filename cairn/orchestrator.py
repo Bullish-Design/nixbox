@@ -114,7 +114,7 @@ class CairnOrchestrator:
             db_path = Path(record.db_path)
 
             if not db_path.exists():
-                record.state = AgentState.ERRORED.value
+                record.state = AgentState.ERRORED
                 record.error = "Agent DB missing after restart"
                 record.state_changed_at = time.time()
                 await self.lifecycle.save(record)
@@ -123,7 +123,7 @@ class CairnOrchestrator:
             try:
                 agent_fs = await AgentFS.open(AgentFSOptions(path=str(db_path)).model_dump())
             except Exception as exc:
-                record.state = AgentState.ERRORED.value
+                record.state = AgentState.ERRORED
                 record.error = f"Failed to open agent DB: {exc}"
                 record.state_changed_at = time.time()
                 await self.lifecycle.save(record)
@@ -133,7 +133,7 @@ class CairnOrchestrator:
                 agent_id=agent_id,
                 task=record.task,
                 priority=TaskPriority(record.priority),
-                state=AgentState(record.state),
+                state=record.state,
                 agent_fs=agent_fs,
                 created_at=record.created_at,
                 state_changed_at=record.state_changed_at,
@@ -223,7 +223,7 @@ class CairnOrchestrator:
             command_type=command.type,
             agent_id=record.agent_id,
             payload={
-                "state": record.state,
+                "state": record.state.value,
                 "task": record.task,
                 "error": record.error,
                 "submission": record.submission,
@@ -245,7 +245,7 @@ class CairnOrchestrator:
             for record in all_records:
                 if record.agent_id not in agents_dict:
                     agents_dict[record.agent_id] = {
-                        "state": record.state,
+                        "state": record.state.value,
                         "task": record.task,
                         "priority": record.priority,
                     }
@@ -326,7 +326,7 @@ class CairnOrchestrator:
                 agent_id=ctx.agent_id,
                 task=ctx.task,
                 priority=int(ctx.priority),
-                state=ctx.state.value,
+                state=ctx.state,
                 created_at=ctx.created_at,
                 state_changed_at=ctx.state_changed_at,
                 db_path=str(bin_db),
@@ -457,7 +457,7 @@ class CairnOrchestrator:
             agent_id=ctx.agent_id,
             task=ctx.task,
             priority=int(ctx.priority),
-            state=ctx.state.value,
+            state=ctx.state,
             created_at=ctx.created_at,
             state_changed_at=ctx.state_changed_at,
             db_path=str(db_path),

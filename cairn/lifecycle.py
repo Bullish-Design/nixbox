@@ -12,41 +12,46 @@ Design Principles:
 
 from __future__ import annotations
 
-import json
 import time
-from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
 from agentfs_sdk import AgentFS
+from pydantic import BaseModel, field_validator, model_validator
 
 from cairn.agent import AgentState
-from cairn.queue import TaskPriority
 
 
-@dataclass
-class LifecycleRecord:
+class LifecycleRecord(BaseModel):
     """Canonical lifecycle record for an agent."""
 
     agent_id: str
     task: str
     priority: int
-    state: str
+    state: AgentState
     created_at: float
     state_changed_at: float
     db_path: str
     submission: dict[str, Any] | None = None
     error: str | None = None
 
-    def to_json(self) -> str:
-        """Serialize to JSON string."""
-        return json.dumps(asdict(self))
-
+    @field_validator("agent_id")
     @classmethod
-    def from_json(cls, data: str) -> LifecycleRecord:
-        """Deserialize from JSON string."""
-        parsed = json.loads(data)
-        return cls(**parsed)
+    def validate_agent_id(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("agent_id must be non-empty")
+        return value
+
+    @field_validator("state", mode="before")
+    @classmethod
+    def validate_state(cls, value: AgentState | str) -> AgentState:
+        return AgentState(value)
+
+    @model_validator(mode="after")
+    def validate_timestamps(self) -> LifecycleRecord:
+        if self.state_changed_at < self.created_at:
+            raise ValueError("state_changed_at must be greater than or equal to created_at")
+        return self
 
 
 class LifecycleStore:
@@ -66,7 +71,7 @@ class LifecycleStore:
         All state transitions must call this method.
         """
         key = f"agent:{record.agent_id}"
-        await self.storage.kv.set(key, record.to_json())
+        await self.storage.kv.set(key, record.model_dump_json())
 
     async def load(self, agent_id: str) -> LifecycleRecord | None:
         """Load an agent lifecycle record by ID."""
@@ -74,7 +79,7 @@ class LifecycleStore:
         data = await self.storage.kv.get(key)
         if data is None:
             return None
-        return LifecycleRecord.from_json(data)
+        return LifecycleRecord.model_validate_json(data)
 
     async def delete(self, agent_id: str) -> None:
         """Delete an agent lifecycle record."""
@@ -90,15 +95,15 @@ class LifecycleStore:
                 continue
             data = await self.storage.kv.get(key)
             if data:
-                records.append(LifecycleRecord.from_json(data))
+                records.append(LifecycleRecord.model_validate_json(data))
         return records
 
     async def list_active(self) -> list[LifecycleRecord]:
         """List only active (non-terminal) agent records."""
         all_records = await self.list_all()
         terminal_states = {
-            AgentState.ACCEPTED.value,
-            AgentState.REJECTED.value,
+            AgentState.ACCEPTED,
+            AgentState.REJECTED,
         }
         return [r for r in all_records if r.state not in terminal_states]
 
@@ -123,9 +128,9 @@ class LifecycleStore:
         cleaned = 0
 
         terminal_states = {
-            AgentState.ACCEPTED.value,
-            AgentState.REJECTED.value,
-            AgentState.ERRORED.value,
+            AgentState.ACCEPTED,
+            AgentState.REJECTED,
+            AgentState.ERRORED,
         }
 
         for record in all_records:
