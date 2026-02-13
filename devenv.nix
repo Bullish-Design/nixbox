@@ -109,6 +109,7 @@ in
   ];
 
   env = {
+    PROJECT_NAME = "nixbox";
     # Default can be overridden by your shell env (AGENTFS_ENABLED=0) or by devenv config.
     AGENTFS_ENABLED = lib.mkDefault (envOrDefault "AGENTFS_ENABLED" "1");
 
@@ -160,6 +161,68 @@ INFO
 
   scripts.link-agentfs.exec = ''
     exec link-abs-to-repo agentfs
+  '';
+
+  scripts.agentfs-session-create.exec = ''
+    cd "${root}"
+    export NIXBOX_ROOT="${root}"
+    export AGENTFS_BIN="${agentfsPackage}/bin/agentfs"
+    exec uv run --script ./scripts/agentfs_session_create.py "$@"
+  '';
+
+  scripts.agentfs-session-shell.exec = ''
+    cd "${root}"
+    export NIXBOX_ROOT="${root}"
+    export AGENTFS_BIN="${agentfsPackage}/bin/agentfs"
+    exec uv run --script ./scripts/agentfs_session_shell.py "$@"
+  '';
+
+  scripts.agentfs-session-boot.exec = ''
+    cd "${root}"
+    export NIXBOX_ROOT="${root}"
+    export AGENTFS_BIN="${agentfsPackage}/bin/agentfs"
+    exec uv run --script ./scripts/agentfs_session_boot.py "$@"
+  '';
+
+  # Test runner scripts
+  scripts.test.exec = ''
+    cd "${root}"
+    exec uv run --all-extras pytest "$@"
+  '';
+
+  scripts.test-unit.exec = ''
+    cd "${root}"
+    exec uv run --all-extras pytest agentfs-pydantic/tests/test_models.py "$@"
+  '';
+
+  scripts.test-integration.exec = ''
+    cd "${root}"
+    exec uv run --all-extras pytest agentfs-pydantic/tests/test_integration.py "$@"
+  '';
+
+  scripts.test-performance.exec = ''
+    cd "${root}"
+    exec uv run --all-extras pytest -m benchmark agentfs-pydantic/tests/test_performance.py "$@"
+  '';
+
+  scripts.test-property.exec = ''
+    cd "${root}"
+    exec uv run --all-extras pytest agentfs-pydantic/tests/test_property_based.py "$@"
+  '';
+
+  scripts.test-cov.exec = ''
+    cd "${root}"
+    exec uv run --all-extras pytest \
+      --cov=agentfs-pydantic/src/agentfs_pydantic \
+      --cov-report=term-missing \
+      --cov-report=html \
+      --cov-branch \
+      agentfs-pydantic/tests/ "$@"
+  '';
+
+  scripts.test-fast.exec = ''
+    cd "${root}"
+    exec uv run --all-extras pytest -m "not slow and not benchmark" "$@"
   '';
 
   enterShell = ''

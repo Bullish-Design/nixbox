@@ -1,65 +1,82 @@
-# nixbox
+# Nixbox
 
-`nixbox` is now a **devenv.sh modular plugin template** for running a local
-[AgentFS](https://docs.turso.tech/agentfs/introduction) database process inside sandboxed development
-filesystems.
+Nixbox is a modular devenv.sh plugin that provides the Cairn agent workspace runtime.
 
-## What this plugin provides
+## Read this first (canonical docs)
 
-- A configurable `agentfs` process under `processes.agentfs`.
-- Built-in environment variables for all runtime knobs.
-- The upstream `agentfs` CLI available directly in the dev shell.
-- Helper scripts to inspect or connect to the local AgentFS instance.
-- A layout that can be copied into any devenv project and split into modules.
+1. **README.md** (this file): install + quickstart.
+2. **[CONCEPT.md](CONCEPT.md)**: philosophy and constraints.
+3. **[SPEC.md](SPEC.md)**: current architecture and runtime contracts.
 
-## Configuration model
+If a topic appears in multiple places, `CONCEPT.md` and `SPEC.md` are authoritative.
 
-All configuration is done through standard devenv functionality (`env`, `packages`, `processes`, `scripts`):
+## Installation
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `AGENTFS_ENABLED` | `1` | Toggle process startup (`1` = enabled, `0` = disabled). |
-| `AGENTFS_HOST` | `127.0.0.1` | Bind host for the AgentFS process. |
-| `AGENTFS_PORT` | `8081` | Bind port for the AgentFS process. |
-| `AGENTFS_DATA_DIR` | `.devenv/state/agentfs` | Persistent local data directory. |
-| `AGENTFS_DB_NAME` | `sandbox` | Logical database name used for local sandboxing. |
-| `AGENTFS_LOG_LEVEL` | `info` | Log level forwarded to the runtime command. |
-| `AGENTFS_EXTRA_ARGS` | *(empty)* | Escape hatch for additional runtime flags. |
-
-## Quick start
-
-1. Enter the shell:
-
-   ```bash
-   devenv shell
-   ```
-
-2. Start background processes:
-
-   ```bash
-   devenv up
-   ```
-
-3. Inspect effective runtime settings:
-
-   ```bash
-   devenv run agentfs-info
-   ```
-
-## Module usage pattern
-
-You can factor this repo into reusable modules by moving the AgentFS block into
-something like `modules/agentfs.nix` and importing it from your own `devenv.nix`:
+### 1) Import modules in `devenv.nix`
 
 ```nix
+{ inputs, ... }:
 {
-  imports = [ ./modules/agentfs.nix ];
+  imports = [
+    ./nixbox/modules/agentfs.nix
+    ./nixbox/modules/cairn.nix
+  ];
 }
 ```
 
-## Notes
+### 2) Enter shell and verify AgentFS
 
-- `devenv.nix` pins the upstream AgentFS flake (`github:tursodatabase/agentfs`) and exposes its default package in `packages`, so the `agentfs` binary is always available in-shell.
-- This template expects a Turso CLI that supports AgentFS subcommands.
-- If your CLI version differs, adjust `processes.agentfs.exec` and keep all options in
-  `env` variables so downstream projects remain declarative.
+```bash
+devenv shell
+agentfs-info
+```
+
+### 3) Start Cairn orchestrator
+
+```bash
+cairn up
+```
+
+## Quickstart
+
+### Queue work
+
+```bash
+cairn spawn "Add docstrings to public functions"
+```
+
+### Inspect
+
+```bash
+cairn list-agents
+cairn status agent-<id>
+```
+
+### Resolve
+
+```bash
+cairn accept agent-<id>
+# or
+cairn reject agent-<id>
+```
+
+## Neovim plugin quick setup
+
+Point your plugin manager to `nixbox/cairn/nvim`.
+
+```lua
+{
+  dir = '~/path/to/nixbox/cairn/nvim',
+  config = function()
+    require('cairn').setup({
+      preview_same_location = true,
+    })
+  end,
+}
+```
+
+## Contributing
+
+- Workflow instructions: [AGENT.md](AGENT.md)
+- Skill runbooks: [`.agent/skills/`](.agent/skills)
+- Architecture and contracts: [CONCEPT.md](CONCEPT.md), [SPEC.md](SPEC.md)
