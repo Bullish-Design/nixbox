@@ -190,17 +190,31 @@ Expected outcomes:
 
 ## Cairn Stage 4 Neovim Plugin Tests
 
-Run these commands from the repository root to validate Stage 4 Neovim contracts (commands, config/keymaps, tmux behavior, ghost text, and watcher parsing).
+Run these commands from the repository root to validate the Stage 4 Neovim plugin implementation.
 
 ```bash
-# Requires plenary.nvim available on runtimepath (set PLENARY_PATH to your checkout)
+# 1) Make sure plugin docs help tags can be generated
+nvim --headless -u NONE -c "helptags cairn/nvim/doc" -c "qa"
+
+# 2) Run full Stage 4 contract suite (requires plenary.nvim on runtimepath)
 PLENARY_PATH=/path/to/plenary.nvim \
   nvim --headless -u cairn/nvim/tests/minimal_init.lua \
   -c "set rtp+=$PLENARY_PATH" \
   -c "PlenaryBustedDirectory cairn/nvim/tests { minimal_init = 'cairn/nvim/tests/minimal_init.lua' }" \
   -c "qa"
+
+# 3) Optional: run focused specs while iterating
+PLENARY_PATH=/path/to/plenary.nvim \
+  nvim --headless -u cairn/nvim/tests/minimal_init.lua \
+  -c "set rtp+=$PLENARY_PATH" \
+  -c "PlenaryBustedFile cairn/nvim/tests/commands_spec.lua { minimal_init = 'cairn/nvim/tests/minimal_init.lua' }" \
+  -c "PlenaryBustedFile cairn/nvim/tests/config_spec.lua { minimal_init = 'cairn/nvim/tests/minimal_init.lua' }" \
+  -c "PlenaryBustedFile cairn/nvim/tests/tmux_spec.lua { minimal_init = 'cairn/nvim/tests/minimal_init.lua' }" \
+  -c "PlenaryBustedFile cairn/nvim/tests/ghost_spec.lua { minimal_init = 'cairn/nvim/tests/minimal_init.lua' }" \
+  -c "PlenaryBustedFile cairn/nvim/tests/watcher_spec.lua { minimal_init = 'cairn/nvim/tests/minimal_init.lua' }" \
+  -c "qa"
 ```
 
 Expected outcome:
-- All specs under `cairn/nvim/tests/` pass.
-- This validates Stage 4 exit-criteria contracts in `.roadmap/ROADMAP-STEP_4.md`.
+- Help tags generate cleanly for `cairn/nvim/doc/cairn.txt`.
+- Stage 4 specs pass for command registration, config/keymaps, tmux preview behavior, ghost text rendering, and watcher parsing/review detection.
