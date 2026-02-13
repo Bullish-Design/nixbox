@@ -9,12 +9,13 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 
 from agentfs_pydantic import AgentFSOptions
 from agentfs_sdk import AgentFS
 
 from cairn.agent import AgentContext, AgentState
+from cairn.commands import CairnCommand, CommandResult, CommandType
 from cairn.code_generator import CodeGenerator
 from cairn.executor import AgentExecutor
 from cairn.external_functions import create_external_functions
@@ -97,6 +98,74 @@ class CairnOrchestrator:
         await asyncio.gather(
             self.watcher.watch(),
             self.signals.watch(),
+        )
+
+    async def submit_command(self, command: CairnCommand) -> CommandResult:
+        """Dispatch normalized command objects to orchestrator handlers."""
+        handlers: dict[CommandType, Callable[[CairnCommand], Awaitable[CommandResult]]] = {
+            CommandType.QUEUE: self._handle_queue,
+            CommandType.ACCEPT: self._handle_accept,
+            CommandType.REJECT: self._handle_reject,
+            CommandType.STATUS: self._handle_status,
+            CommandType.LIST_AGENTS: self._handle_list_agents,
+        }
+
+        handler = handlers.get(command.type)
+        if handler is None:
+            raise ValueError(f"Unsupported command type: {command.type.value}")
+
+        return await handler(command)
+
+    async def _handle_queue(self, command: CairnCommand) -> CommandResult:
+        if command.task is None or command.priority is None:
+            raise ValueError("queue commands require task and priority")
+
+        agent_id = await self.spawn_agent(task=command.task, priority=command.priority)
+        return CommandResult(command_type=command.type, agent_id=agent_id)
+
+    async def _handle_accept(self, command: CairnCommand) -> CommandResult:
+        if command.agent_id is None:
+            raise ValueError("accept commands require agent_id")
+
+        await self.accept_agent(command.agent_id)
+        return CommandResult(command_type=command.type, agent_id=command.agent_id)
+
+    async def _handle_reject(self, command: CairnCommand) -> CommandResult:
+        if command.agent_id is None:
+            raise ValueError("reject commands require agent_id")
+
+        await self.reject_agent(command.agent_id)
+        return CommandResult(command_type=command.type, agent_id=command.agent_id)
+
+    async def _handle_status(self, command: CairnCommand) -> CommandResult:
+        if command.agent_id is None:
+            raise ValueError("status commands require agent_id")
+
+        ctx = self._get_agent(command.agent_id)
+        return CommandResult(
+            command_type=command.type,
+            agent_id=ctx.agent_id,
+            payload={
+                "state": ctx.state.value,
+                "task": ctx.task,
+                "error": ctx.error,
+                "submission": ctx.submission,
+            },
+        )
+
+    async def _handle_list_agents(self, command: CairnCommand) -> CommandResult:
+        return CommandResult(
+            command_type=command.type,
+            payload={
+                "agents": {
+                    agent_id: {
+                        "state": ctx.state.value,
+                        "task": ctx.task,
+                        "priority": int(ctx.priority),
+                    }
+                    for agent_id, ctx in self.active_agents.items()
+                }
+            },
         )
 
     async def spawn_agent(

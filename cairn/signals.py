@@ -62,16 +62,7 @@ class SignalHandler:
                     signal_file.unlink(missing_ok=True)
 
     async def _dispatch(self, command: CairnCommand) -> None:
-        if command.type is CommandType.QUEUE and command.task and command.priority is not None:
-            await self.orchestrator.spawn_agent(task=command.task, priority=command.priority)
-            return
-
-        if command.type is CommandType.ACCEPT and command.agent_id:
-            await self.orchestrator.accept_agent(command.agent_id)
-            return
-
-        if command.type is CommandType.REJECT and command.agent_id:
-            await self.orchestrator.reject_agent(command.agent_id)
+        await self.orchestrator.submit_command(command)
 
     def _load_payload(self, signal_file: Path) -> dict[str, Any]:
         try:
