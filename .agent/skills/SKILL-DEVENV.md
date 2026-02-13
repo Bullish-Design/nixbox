@@ -1,53 +1,13 @@
-# SKILL: Nix/devenv Module Development
+# SKILL: devenv/Nix module workflow
 
-Quick reference for developing Nix modules for nixbox.
+Use this skill when changing `modules/*.nix` integration.
 
-## Module Structure
+Architecture context lives in [README.md](../../README.md) for setup and [SPEC.md](../../SPEC.md) for runtime contracts.
 
-```nix
-# modules/agentfs.nix
-{ inputs, pkgs, config, ... }:
-{
-  packages = [ agentfsPackage ];
-  
-  env = {
-    AGENTFS_HOST = lib.mkDefault "127.0.0.1";
-    AGENTFS_PORT = lib.mkDefault "8081";
-  };
-  
-  processes.agentfs = lib.mkIf agentfsEnabled {
-    exec = agentfsServe;
-  };
-  
-  scripts.agentfs-info.exec = ''
-    echo "AgentFS running on $AGENTFS_HOST:$AGENTFS_PORT"
-  '';
-}
-```
+## Workflow
 
-## Composition
-
-```nix
-# devenv.nix
-{
-  imports = [
-    ./nixbox/modules/agentfs.nix
-    ./nixbox/modules/cairn.nix
-  ];
-}
-```
-
-## Building Packages
-
-```nix
-agentfsPackage = rustPlatform.buildRustPackage {
-  pname = "agentfs";
-  version = "0.6.0";
-  src = ./vendor/agentfs;
-  cargoLock.lockFile = ./vendor/agentfs/Cargo.lock;
-};
-```
-
-## See Also
-- [devenv.sh Docs](https://devenv.sh/)
-- [Nix Pills](https://nixos.org/guides/nix-pills/)
+1. Keep module import path and shell UX minimal.
+2. Ensure environment defaults are safe and overridable.
+3. Ensure processes/scripts reflect current CLI contract.
+4. Verify `devenv shell` + service startup still work.
+5. Update README quickstart if command entrypoints change.
