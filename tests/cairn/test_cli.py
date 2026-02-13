@@ -21,6 +21,7 @@ def test_spawn_command_writes_signal(tmp_path: Path) -> None:
     files = list((cairn_home / "signals").glob("spawn-*.json"))
     assert len(files) == 1
     payload = _read_json(files[0])
+    assert payload["type"] == "queue"
     assert payload["task"] == "Add docs"
 
 
@@ -33,6 +34,7 @@ def test_accept_command_writes_signal(tmp_path: Path) -> None:
     files = list((cairn_home / "signals").glob("accept-*.json"))
     assert len(files) == 1
     payload = _read_json(files[0])
+    assert payload["type"] == "accept"
     assert payload["agent_id"] == "agent-123"
 
 
