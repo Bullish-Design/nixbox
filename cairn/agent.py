@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
 from enum import Enum
 
 from agentfs_sdk import AgentFS
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from cairn.executor import ExecutionResult
 from cairn.queue import TaskPriority
@@ -26,9 +26,10 @@ class AgentState(str, Enum):
     ERRORED = "errored"
 
 
-@dataclass
-class AgentContext:
+class AgentContext(BaseModel):
     """Runtime metadata for an agent task lifecycle."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     agent_id: str
     task: str
@@ -39,8 +40,21 @@ class AgentContext:
     execution_result: ExecutionResult | None = None
     submission: dict | None = None
     error: str | None = None
-    created_at: float = field(default_factory=time.time)
-    state_changed_at: float = field(default_factory=time.time)
+    created_at: float = Field(default_factory=time.time)
+    state_changed_at: float = Field(default_factory=time.time)
+
+    @field_validator("agent_id")
+    @classmethod
+    def validate_agent_id(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("agent_id must be non-empty")
+        return value
+
+    @model_validator(mode="after")
+    def validate_timestamps(self) -> AgentContext:
+        if self.state_changed_at < self.created_at:
+            raise ValueError("state_changed_at must be greater than or equal to created_at")
+        return self
 
     def transition(self, new_state: AgentState) -> None:
         """Transition state and update the lifecycle timestamp."""

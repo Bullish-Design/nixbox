@@ -335,3 +335,50 @@ async def test_submit_command_dispatches_accept_and_removes_agent(tmp_path: Path
     assert result.command_type is CommandType.ACCEPT
     assert result.agent_id == agent_id
     assert agent_id not in orch.active_agents
+
+
+@pytest.mark.asyncio
+async def test_status_for_inactive_agent_reads_typed_lifecycle_record(tmp_path: Path) -> None:
+    orch = CairnOrchestrator(
+        project_root=tmp_path,
+        cairn_home=tmp_path / ".cairn",
+        code_generator=FakeCodeGenerator(),
+        executor=FakeExecutor(),
+    )
+    await orch.initialize()
+
+    queue_result = await orch.submit_command(parse_command_payload("queue", {"task": "status after reject"}))
+    assert queue_result.agent_id is not None
+    agent_id = queue_result.agent_id
+    await _wait_for_state(orch, agent_id, AgentState.REVIEWING)
+
+    await orch.reject_agent(agent_id)
+
+    status = await orch.submit_command(parse_command_payload("status", {"agent_id": agent_id}))
+
+    assert status.agent_id == agent_id
+    assert status.payload is not None
+    assert status.payload["state"] == AgentState.REJECTED.value
+
+
+@pytest.mark.asyncio
+async def test_list_agents_includes_lifecycle_records_with_serialized_state(tmp_path: Path) -> None:
+    orch = CairnOrchestrator(
+        project_root=tmp_path,
+        cairn_home=tmp_path / ".cairn",
+        code_generator=FakeCodeGenerator(),
+        executor=FakeExecutor(),
+    )
+    await orch.initialize()
+
+    queue_result = await orch.submit_command(parse_command_payload("queue", {"task": "list lifecycle"}))
+    assert queue_result.agent_id is not None
+    agent_id = queue_result.agent_id
+    await _wait_for_state(orch, agent_id, AgentState.REVIEWING)
+
+    await orch.reject_agent(agent_id)
+
+    result = await orch.submit_command(parse_command_payload("list_agents", {}))
+
+    assert result.payload is not None
+    assert result.payload["agents"][agent_id]["state"] == AgentState.REJECTED.value
