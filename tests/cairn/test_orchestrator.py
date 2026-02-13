@@ -233,6 +233,70 @@ async def test_concurrency_gate_keeps_second_agent_queued_until_slot_is_free(tmp
     await _wait_for_state(orch, agent2, AgentState.REVIEWING)
 
 
+
+
+@pytest.mark.asyncio
+async def test_submit_command_dispatches_each_type_to_single_handler_path(tmp_path: Path) -> None:
+    orch = CairnOrchestrator(
+        project_root=tmp_path,
+        cairn_home=tmp_path / ".cairn",
+        code_generator=FakeCodeGenerator(),
+        executor=FakeExecutor(),
+    )
+    await orch.initialize()
+
+    calls: list[CommandType] = []
+
+    async def handle_queue(command):
+        assert command.type is CommandType.QUEUE
+        calls.append(CommandType.QUEUE)
+        return object()
+
+    async def handle_accept(command):
+        assert command.type is CommandType.ACCEPT
+        calls.append(CommandType.ACCEPT)
+        return object()
+
+    async def handle_reject(command):
+        assert command.type is CommandType.REJECT
+        calls.append(CommandType.REJECT)
+        return object()
+
+    async def handle_status(command):
+        assert command.type is CommandType.STATUS
+        calls.append(CommandType.STATUS)
+        return object()
+
+    async def handle_list_agents(command):
+        assert command.type is CommandType.LIST_AGENTS
+        calls.append(CommandType.LIST_AGENTS)
+        return object()
+
+    orch._handle_queue = handle_queue
+    orch._handle_accept = handle_accept
+    orch._handle_reject = handle_reject
+    orch._handle_status = handle_status
+    orch._handle_list_agents = handle_list_agents
+
+    commands = [
+        parse_command_payload("queue", {"task": "dispatch queue"}),
+        parse_command_payload("accept", {"agent_id": "agent-accept"}),
+        parse_command_payload("reject", {"agent_id": "agent-reject"}),
+        parse_command_payload("status", {"agent_id": "agent-status"}),
+        parse_command_payload("list_agents", {}),
+    ]
+
+    for command in commands:
+        await orch.submit_command(command)
+
+    assert calls == [
+        CommandType.QUEUE,
+        CommandType.ACCEPT,
+        CommandType.REJECT,
+        CommandType.STATUS,
+        CommandType.LIST_AGENTS,
+    ]
+
 @pytest.mark.asyncio
 async def test_submit_command_dispatches_queue_to_private_handler(tmp_path: Path) -> None:
     orch = CairnOrchestrator(

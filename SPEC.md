@@ -90,7 +90,9 @@ Disallowed:
 
 ### Responsibilities
 
-- monitor signals (`spawn/queue/accept/reject`),
+- accept normalized `CairnCommand` ingress and dispatch to command handlers (`queue/accept/reject/status/list_agents`),
+- treat CLI and signal files as transport adapters that both parse into the same command model before dispatch,
+- optionally monitor signal files (`spawn/queue/accept/reject`) when signal polling is enabled,
 - enqueue per-agent overlays into a priority queue,
 - run a long-lived worker loop that acquires an `asyncio.Semaphore(max_concurrent_agents)` slot before starting each agent,
 - release the semaphore slot in one completion `finally` path,
@@ -100,6 +102,8 @@ Disallowed:
 
 ### CLI contract (current)
 
+CLI subcommands are a transport adapter: each invocation parses into a normalized `CairnCommand` and calls orchestrator `submit_command`.
+
 - `cairn up`
 - `cairn spawn <task>`
 - `cairn queue <task>`
@@ -107,6 +111,10 @@ Disallowed:
 - `cairn status <agent-id>`
 - `cairn accept <agent-id>`
 - `cairn reject <agent-id>`
+
+### Signal adapter contract
+
+Signals are an optional transport adapter. When `enable_signal_polling=true`, the orchestrator watches `$CAIRN_HOME/signals/*.json` and routes each file through the same command parser + `submit_command` path used by CLI ingress. When disabled, signal parsing semantics remain identical for manual/explicit `process_signals_once` processing.
 
 ## Documentation boundaries
 
