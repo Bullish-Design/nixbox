@@ -51,6 +51,16 @@ class CairnCommand:
         return payload
 
 
+@dataclass(slots=True)
+class CommandResult:
+    """Normalized result returned after orchestrator command dispatch."""
+
+    command_type: CommandType
+    ok: bool = True
+    agent_id: str | None = None
+    payload: dict[str, Any] = field(default_factory=dict)
+
+
 def _parse_command_type(command_type: CommandType | str) -> tuple[CommandType, bool]:
     if isinstance(command_type, CommandType):
         return command_type, False

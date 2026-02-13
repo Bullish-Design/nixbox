@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 
 from cairn.agent import AgentState
+from cairn.commands import CommandType, parse_command_payload
 from cairn.executor import ExecutionResult
 from cairn.orchestrator import CairnOrchestrator, OrchestratorConfig
 from cairn.queue import TaskPriority
@@ -214,3 +215,43 @@ async def test_concurrency_gate_keeps_second_agent_queued_until_slot_is_free(tmp
     executor.release.set()
     await _wait_for_state(orch, agent1, AgentState.REVIEWING)
     await _wait_for_state(orch, agent2, AgentState.REVIEWING)
+
+
+@pytest.mark.asyncio
+async def test_submit_command_dispatches_queue_to_private_handler(tmp_path: Path) -> None:
+    orch = CairnOrchestrator(
+        project_root=tmp_path,
+        cairn_home=tmp_path / ".cairn",
+        code_generator=FakeCodeGenerator(),
+        executor=FakeExecutor(),
+    )
+    await orch.initialize()
+
+    command = parse_command_payload(CommandType.QUEUE, {"task": "via command object"})
+    result = await orch.submit_command(command)
+
+    assert result.command_type is CommandType.QUEUE
+    assert result.agent_id is not None
+    assert result.agent_id in orch.active_agents
+
+
+@pytest.mark.asyncio
+async def test_submit_command_dispatches_accept_and_removes_agent(tmp_path: Path) -> None:
+    orch = CairnOrchestrator(
+        project_root=tmp_path,
+        cairn_home=tmp_path / ".cairn",
+        code_generator=FakeCodeGenerator(),
+        executor=FakeExecutor(),
+    )
+    await orch.initialize()
+
+    queue_result = await orch.submit_command(parse_command_payload("queue", {"task": "accept via command"}))
+    assert queue_result.agent_id is not None
+    agent_id = queue_result.agent_id
+    await _wait_for_state(orch, agent_id, AgentState.REVIEWING)
+
+    result = await orch.submit_command(parse_command_payload(CommandType.ACCEPT, {"agent_id": agent_id}))
+
+    assert result.command_type is CommandType.ACCEPT
+    assert result.agent_id == agent_id
+    assert agent_id not in orch.active_agents
