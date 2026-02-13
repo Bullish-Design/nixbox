@@ -42,12 +42,11 @@ agentfs-info
 ### 3. Initialize Cairn Workspace
 
 ```bash
-# Initialize stable layer from your project
-cairn-init
-
-# Start the orchestrator
+# Start the orchestrator service (Stage 3)
 cairn up
 ```
+
+> `cairn-init` is still planned and is **not** part of the current Stage 3 CLI surface.
 
 ### 4. Install Neovim Plugin
 
@@ -287,6 +286,36 @@ temperature = 0.2
 ```
 
 ## Usage
+
+### Stage 3 CLI Status (Implemented)
+
+The following orchestrator commands are functional in Stage 3:
+
+```bash
+# 1) Start the headless orchestrator service
+cairn --project-root . --cairn-home ~/.cairn up
+
+# 2) Queue work
+cairn --cairn-home ~/.cairn spawn "Add docstrings to public functions"  # high priority
+cairn --cairn-home ~/.cairn queue "Refactor long functions"              # normal priority
+
+# 3) Inspect state
+cairn --cairn-home ~/.cairn list-agents
+cairn --cairn-home ~/.cairn status agent-<id>
+
+# 4) Resolve review outcome
+cairn --cairn-home ~/.cairn accept agent-<id>
+cairn --cairn-home ~/.cairn reject agent-<id>
+```
+
+Command behavior notes:
+- `up` runs the long-lived orchestrator loop.
+- `spawn`, `queue`, `accept`, and `reject` enqueue JSON signal files under `$CAIRN_HOME/signals`.
+- `list-agents` and `status` read orchestrator snapshots from `$CAIRN_HOME/state/orchestrator.json`.
+
+Not yet implemented in Stage 3:
+- `cairn-init`
+- Neovim/TMUX UI commands (`:CairnQueue`, ghost text workflow) are Stage 4 scope.
 
 ### Queue Agent Tasks
 

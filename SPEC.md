@@ -1,7 +1,7 @@
 # Cairn Technical Specification
 
 Version: 1.0 (MVP)
-Status: Design Phase
+Status: Stage 3 Implemented (Orchestration Core complete)
 Updated: 2026-02-13
 
 ## Overview
@@ -236,25 +236,47 @@ Respond with ONLY the Python code. No markdown, no explanation.
 """
 ```
 
-## Orchestration Layer: Cairn
+## Orchestration Layer: Cairn (Implemented Stage 3)
 
 ### Main Components
 
 ```python
+from dataclasses import dataclass
+from pathlib import Path
+
+from agentfs_sdk import AgentFS
+
+from cairn.agent import AgentContext
+from cairn.code_generator import CodeGenerator
+from cairn.executor import AgentExecutor
+from cairn.queue import TaskQueue
+from cairn.signals import SignalHandler
+from cairn.watcher import FileWatcher
+from cairn.workspace import WorkspaceMaterializer
+
+
+@dataclass
+class OrchestratorConfig:
+    max_concurrent_agents: int = 5
+
+
 class CairnOrchestrator:
-    """Main orchestrator process"""
-
-    def __init__(self, project_root: str = "."):
-        self.project_root = Path(project_root)
+    def __init__(self, project_root: Path | str = ".", cairn_home: Path | str | None = None):
+        self.project_root = Path(project_root).resolve()
         self.agentfs_dir = self.project_root / ".agentfs"
-        self.cairn_home = Path.home() / ".cairn"
+        self.cairn_home = Path(cairn_home or Path.home() / ".cairn").expanduser()
 
-        self.stable: AgentFS
-        self.bin: AgentFS
-        self.active_agents: dict[str, AgentContext]
-        self.queue: TaskQueue
-        self.gc: WorkspaceGC
-        self.llm: LLMProvider
+        self.stable: AgentFS | None = None
+        self.bin: AgentFS | None = None
+        self.active_agents: dict[str, AgentContext] = {}
+        self.queue = TaskQueue(max_concurrent=5)
+
+        self.llm = CodeGenerator()
+        self.executor = AgentExecutor()
+
+        self.watcher: FileWatcher | None = None
+        self.signals: SignalHandler | None = None
+        self.materializer: WorkspaceMaterializer | None = None
 ```
 
 ### Agent Lifecycle
@@ -320,136 +342,97 @@ class CairnOrchestrator:
 
 ```python
 class CairnOrchestrator:
-    async def run(self):
-        """Main event loop"""
+    async def run(self) -> None:
+        if self.watcher is None or self.signals is None:
+            await self.initialize()
 
-        # Initialize
-        await self.initialize()
-
-        # Start background tasks
         await asyncio.gather(
-            self.watch_file_changes(),    # inotify → stable.db
-            self.watch_signals(),          # accept/reject signals
-            self.auto_spawn_loop(),        # task queue → spawn agents
-            self.gc_loop(),                # cleanup workspaces
+            self.watcher.watch(),
+            self.signals.watch(),
+            self.auto_spawn_loop(),
         )
 ```
 
 ### File Watching
 
 ```python
-async def watch_file_changes(self):
-    """Watch project files and sync to stable layer"""
-    async for changes in awatch(self.project_root):
-        for change_type, path_str in changes:
-            path = Path(path_str)
+from watchfiles import Change
 
-            # Skip .agentfs, .git, .jj
-            if any(skip in path.parts for skip in ['.agentfs', '.git', '.jj']):
-                continue
 
-            # Sync to stable
-            rel_path = str(path.relative_to(self.project_root))
+class FileWatcher:
+    async def handle_change(self, change_type: Change, path: Path) -> None:
+        if self.should_ignore(path) or path.is_dir():
+            return
 
-            if change_type == Change.added or change_type == Change.modified:
-                if path.is_file():
-                    content = path.read_bytes()
-                    await self.stable.fs.write_file(rel_path, content)
+        rel_path = path.relative_to(self.project_root).as_posix()
 
-            elif change_type == Change.deleted:
-                await self.stable.fs.remove(rel_path)
+        if change_type == Change.deleted:
+            await self._delete_from_stable(rel_path)
+            return
+
+        if path.exists():
+            await self.stable.fs.write_file(rel_path, path.read_bytes())
 ```
 
 ### Signal Handling
 
 ```python
-async def watch_signals(self):
-    """Poll for accept/reject signals from Neovim"""
-    while True:
-        await asyncio.sleep(0.5)  # Check every 500ms
+class SignalHandler:
+    async def watch(self) -> None:
+        while True:
+            await asyncio.sleep(0.5)
 
-        signals_dir = self.cairn_home / "signals"
+            for signal_file in sorted(self.signals_dir.glob("accept-*")):
+                payload = self._load_payload(signal_file)
+                agent_id = payload.get("agent_id") or signal_file.stem.replace("accept-", "")
+                await self.orchestrator.accept_agent(agent_id)
+                signal_file.unlink(missing_ok=True)
 
-        # Accept signals
-        for signal_file in signals_dir.glob("accept-*"):
-            agent_id = signal_file.stem.replace("accept-", "")
-            try:
-                await self.accept_agent(agent_id)
-            finally:
-                signal_file.unlink()
+            for signal_file in sorted(self.signals_dir.glob("reject-*")):
+                payload = self._load_payload(signal_file)
+                agent_id = payload.get("agent_id") or signal_file.stem.replace("reject-", "")
+                await self.orchestrator.reject_agent(agent_id)
+                signal_file.unlink(missing_ok=True)
 
-        # Reject signals
-        for signal_file in signals_dir.glob("reject-*"):
-            agent_id = signal_file.stem.replace("reject-", "")
-            try:
-                await self.reject_agent(agent_id)
-            finally:
-                signal_file.unlink()
+            for signal_file in sorted(self.signals_dir.glob("spawn-*")):
+                payload = self._load_payload(signal_file)
+                if payload.get("task"):
+                    await self.orchestrator.spawn_agent(payload["task"], TaskPriority(payload.get("priority", 3)))
+                signal_file.unlink(missing_ok=True)
 ```
 
 ### Accept/Reject Logic
 
 ```python
-async def accept_agent(self, agent_id: str):
-    """Accept agent changes and merge to stable"""
-    ctx = self.active_agents.get(agent_id)
-    if not ctx:
-        return
+async def accept_agent(self, agent_id: str) -> None:
+    ctx = self._get_agent(agent_id)
+    ctx.transition(AgentState.ACCEPTED)
 
-    # Get submission
-    submission_str = await ctx.agent_fs.kv.get("submission")
-    submission = json.loads(submission_str)
-
-    # Copy changed files from agent overlay to stable
-    for path in submission["changed_files"]:
-        content = await ctx.agent_fs.fs.read_file(path)
-        await self.stable.fs.write_file(path, content)
-
-    # If jujutsu integration enabled
-    if self.config.jj_integration:
-        await self.jj.squash_change(agent_id)
-
-    # Cleanup
+    await self._merge_overlay_to_stable(ctx.agent_fs, self.stable)
     await self.trash_agent(agent_id)
 
-async def reject_agent(self, agent_id: str):
-    """Reject agent changes and cleanup"""
-    ctx = self.active_agents.get(agent_id)
-    if not ctx:
-        return
 
-    # If jujutsu integration enabled
-    if self.config.jj_integration:
-        await self.jj.abandon_change(agent_id)
-
-    # Cleanup
+async def reject_agent(self, agent_id: str) -> None:
+    ctx = self._get_agent(agent_id)
+    ctx.transition(AgentState.REJECTED)
     await self.trash_agent(agent_id)
 ```
 
 ### Workspace Materialization
 
 ```python
-async def materialize_workspace(self, agent_id: str) -> Path:
-    """Copy agent overlay to disk for preview/testing"""
-    ctx = self.active_agents.get(agent_id)
-    workspace = self.cairn_home / "workspaces" / agent_id
+class WorkspaceMaterializer:
+    async def materialize(self, agent_id: str, agent_fs: AgentFS) -> Path:
+        workspace = self.workspace_dir / agent_id
+        if workspace.exists():
+            shutil.rmtree(workspace)
+        workspace.mkdir(parents=True, exist_ok=True)
 
-    # Clear existing
-    if workspace.exists():
-        shutil.rmtree(workspace)
-    workspace.mkdir(parents=True)
+        if self.stable_fs is not None:
+            await self._copy_recursive(self.stable_fs, "/", workspace)
 
-    # Get all files from overlay (includes stable layer via fallthrough)
-    files = await self.get_all_files(ctx.agent_fs)
-
-    # Copy files
-    for file_path in files:
-        content = await ctx.agent_fs.fs.read_file(file_path)
-        dest = workspace / file_path
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_bytes(content)
-
-    return workspace
+        await self._copy_recursive(agent_fs, "/", workspace)
+        return workspace
 ```
 
 ## UI Layer: Neovim + TMUX
@@ -579,36 +562,25 @@ return M
 ```python
 import llm
 
-class LLMProvider:
-    """Wrapper around llm library for agent code generation"""
+from cairn.code_generator import CodeGenerator
 
+
+class CodeGenerator:
     def __init__(self, model: str | None = None):
-        self.model = model or llm.get_default_model()
+        self.model = llm.get_model(model) if model else llm.get_default_model()
 
-    async def generate(self, prompt: str, context: str = "") -> str:
-        """Generate response from LLM"""
-        full_prompt = f"{context}\n\n{prompt}" if context else prompt
-
-        response = self.model.prompt(full_prompt)
-        return response.text()
-
-    async def generate_agent_code(self, task: str) -> str:
-        """Generate Python code for agent task"""
-        prompt = AGENT_CODE_PROMPT.format(task=task)
-        code = await self.generate(prompt)
-        return self.extract_code(code)
+    async def generate(self, task: str) -> str:
+        prompt = self.PROMPT_TEMPLATE.format(task=task)
+        response = self.model.prompt(prompt)
+        return self.extract_code(response.text())
 
     def extract_code(self, response: str) -> str:
-        """Extract code from LLM response"""
         lines = response.strip().split("\n")
-
-        # Remove markdown fences if present
-        if lines[0].startswith("```"):
+        if lines and lines[0].startswith("```"):
             lines = lines[1:]
         if lines and lines[-1].startswith("```"):
             lines = lines[:-1]
-
-        return "\n".join(lines)
+        return "\n".join(lines).strip()
 ```
 
 ### Configuration
