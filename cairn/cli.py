@@ -9,6 +9,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from cairn.commands import CairnCommand, parse_command_payload
 from cairn.orchestrator import CairnOrchestrator
 from cairn.queue import TaskPriority
 
@@ -20,12 +21,12 @@ async def _run_up(args: argparse.Namespace) -> int:
     return 0
 
 
-def _write_signal(cairn_home: str | Path | None, kind: str, payload: dict[str, Any]) -> Path:
+def _write_signal(cairn_home: str | Path | None, kind: str, command: CairnCommand) -> Path:
     home = Path(cairn_home or Path.home() / ".cairn").expanduser()
     signals_dir = home / "signals"
     signals_dir.mkdir(parents=True, exist_ok=True)
     signal_path = signals_dir / f"{kind}-{uuid.uuid4().hex}.json"
-    signal_path.write_text(json.dumps(payload), encoding="utf-8")
+    signal_path.write_text(json.dumps(command.to_payload()), encoding="utf-8")
     return signal_path
 
 
@@ -38,20 +39,22 @@ def _read_state(cairn_home: str | Path | None) -> dict[str, Any]:
 
 
 def _run_spawn(args: argparse.Namespace) -> int:
+    command = parse_command_payload("spawn", {"task": args.task, "priority": int(TaskPriority.HIGH)})
     _write_signal(
         cairn_home=args.cairn_home,
         kind="spawn",
-        payload={"task": args.task, "priority": int(TaskPriority.HIGH)},
+        command=command,
     )
     print("queued spawn request")
     return 0
 
 
 def _run_queue(args: argparse.Namespace) -> int:
+    command = parse_command_payload("queue", {"task": args.task, "priority": int(TaskPriority.NORMAL)})
     _write_signal(
         cairn_home=args.cairn_home,
         kind="queue",
-        payload={"task": args.task, "priority": int(TaskPriority.NORMAL)},
+        command=command,
     )
     print("queued task request")
     return 0
@@ -81,13 +84,15 @@ def _run_status(args: argparse.Namespace) -> int:
 
 
 def _run_accept(args: argparse.Namespace) -> int:
-    _write_signal(cairn_home=args.cairn_home, kind="accept", payload={"agent_id": args.agent_id})
+    command = parse_command_payload("accept", {"agent_id": args.agent_id})
+    _write_signal(cairn_home=args.cairn_home, kind="accept", command=command)
     print(f"queued accept for {args.agent_id}")
     return 0
 
 
 def _run_reject(args: argparse.Namespace) -> int:
-    _write_signal(cairn_home=args.cairn_home, kind="reject", payload={"agent_id": args.agent_id})
+    command = parse_command_payload("reject", {"agent_id": args.agent_id})
+    _write_signal(cairn_home=args.cairn_home, kind="reject", command=command)
     print(f"queued reject for {args.agent_id}")
     return 0
 

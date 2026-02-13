@@ -5,16 +5,16 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from cairn.queue import TaskPriority
+from cairn.commands import CairnCommand, CommandType, parse_command_payload
 
 if TYPE_CHECKING:
     from cairn.orchestrator import CairnOrchestrator
 
 
 class SignalHandler:
-    """Poll signal files and dispatch orchestrator lifecycle actions."""
+    """Poll signal files and dispatch normalized orchestrator commands."""
 
     def __init__(self, cairn_home: Path, orchestrator: "CairnOrchestrator"):
         self.signals_dir = Path(cairn_home) / "signals"
@@ -29,42 +29,53 @@ class SignalHandler:
 
             for signal_file in sorted(self.signals_dir.glob("accept-*")):
                 payload = self._load_payload(signal_file)
-                agent_id = payload.get("agent_id") or signal_file.stem.replace("accept-", "")
+                payload.setdefault("agent_id", signal_file.stem.replace("accept-", ""))
+                command = parse_command_payload(CommandType.ACCEPT, payload)
                 try:
-                    await self.orchestrator.accept_agent(agent_id)
+                    await self._dispatch(command)
                 finally:
                     signal_file.unlink(missing_ok=True)
 
             for signal_file in sorted(self.signals_dir.glob("reject-*")):
                 payload = self._load_payload(signal_file)
-                agent_id = payload.get("agent_id") or signal_file.stem.replace("reject-", "")
+                payload.setdefault("agent_id", signal_file.stem.replace("reject-", ""))
+                command = parse_command_payload(CommandType.REJECT, payload)
                 try:
-                    await self.orchestrator.reject_agent(agent_id)
+                    await self._dispatch(command)
                 finally:
                     signal_file.unlink(missing_ok=True)
 
             for signal_file in sorted(self.signals_dir.glob("spawn-*")):
                 payload = self._load_payload(signal_file)
-                task = payload.get("task")
-                priority = TaskPriority(payload.get("priority", int(TaskPriority.HIGH)))
+                command = parse_command_payload("spawn", payload)
                 try:
-                    if task:
-                        await self.orchestrator.spawn_agent(task=task, priority=priority)
+                    await self._dispatch(command)
                 finally:
                     signal_file.unlink(missing_ok=True)
 
             for signal_file in sorted(self.signals_dir.glob("queue-*")):
                 payload = self._load_payload(signal_file)
-                task = payload.get("task")
-                priority = TaskPriority(payload.get("priority", int(TaskPriority.NORMAL)))
+                command = parse_command_payload(CommandType.QUEUE, payload)
                 try:
-                    if task:
-                        await self.orchestrator.spawn_agent(task=task, priority=priority)
+                    await self._dispatch(command)
                 finally:
                     signal_file.unlink(missing_ok=True)
 
-    def _load_payload(self, signal_file: Path) -> dict[str, str | int]:
+    async def _dispatch(self, command: CairnCommand) -> None:
+        if command.type is CommandType.QUEUE and command.task and command.priority is not None:
+            await self.orchestrator.spawn_agent(task=command.task, priority=command.priority)
+            return
+
+        if command.type is CommandType.ACCEPT and command.agent_id:
+            await self.orchestrator.accept_agent(command.agent_id)
+            return
+
+        if command.type is CommandType.REJECT and command.agent_id:
+            await self.orchestrator.reject_agent(command.agent_id)
+
+    def _load_payload(self, signal_file: Path) -> dict[str, Any]:
         try:
-            return json.loads(signal_file.read_text(encoding="utf-8"))
+            loaded = json.loads(signal_file.read_text(encoding="utf-8"))
+            return loaded if isinstance(loaded, dict) else {}
         except (FileNotFoundError, json.JSONDecodeError):
             return {}
