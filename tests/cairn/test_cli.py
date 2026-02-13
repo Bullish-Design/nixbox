@@ -5,7 +5,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from cairn.cli import main
+from cairn.commands import CommandType, parse_command_payload
+from cairn.queue import TaskPriority
 
 
 def test_spawn_command_dispatches_and_prints(tmp_path: Path, capsys) -> None:
@@ -55,3 +59,57 @@ def test_status_command_unknown_agent(tmp_path: Path, capsys) -> None:
     assert exit_code == 1
     out = capsys.readouterr().out
     assert "Unknown agent: agent-missing" in out
+
+
+@pytest.mark.parametrize(
+    ("argv", "expected"),
+    [
+        (
+            ["spawn", "Fast track task"],
+            parse_command_payload("spawn", {"task": "Fast track task", "priority": int(TaskPriority.HIGH)}),
+        ),
+        (
+            ["queue", "Backlog task"],
+            parse_command_payload("queue", {"task": "Backlog task", "priority": int(TaskPriority.NORMAL)}),
+        ),
+        (
+            ["accept", "agent-1"],
+            parse_command_payload(CommandType.ACCEPT, {"agent_id": "agent-1"}),
+        ),
+        (
+            ["reject", "agent-2"],
+            parse_command_payload(CommandType.REJECT, {"agent_id": "agent-2"}),
+        ),
+        (
+            ["status", "agent-3"],
+            parse_command_payload(CommandType.STATUS, {"agent_id": "agent-3"}),
+        ),
+        (
+            ["list-agents"],
+            parse_command_payload(CommandType.LIST_AGENTS, {}),
+        ),
+    ],
+)
+def test_cli_adapter_emits_normalized_cairn_command(
+    tmp_path: Path,
+    argv: list[str],
+    expected,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    emitted = []
+
+    async def _submit(self, command):  # noqa: ANN001
+        emitted.append(command)
+
+        class _Result:
+            payload: dict[str, object] = {}
+
+        return _Result()
+
+    monkeypatch.setattr("cairn.cli.CairnCommandClient.submit", _submit)
+
+    full_argv = ["--project-root", str(tmp_path), "--cairn-home", str(tmp_path / ".cairn"), *argv]
+    exit_code = main(full_argv)
+
+    assert exit_code == 0
+    assert emitted == [expected]

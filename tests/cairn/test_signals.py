@@ -8,17 +8,17 @@ from pathlib import Path
 
 import pytest
 
-from cairn.commands import CommandType
+from cairn.commands import CairnCommand, CommandType, parse_command_payload
 from cairn.queue import TaskPriority
 from cairn.signals import SignalHandler
 
 
 class StubOrchestrator:
     def __init__(self) -> None:
-        self.commands: list[tuple[CommandType, str | None, str | None, TaskPriority | None]] = []
+        self.commands: list[CairnCommand] = []
 
-    async def submit_command(self, command) -> object:
-        self.commands.append((command.type, command.agent_id, command.task, command.priority))
+    async def submit_command(self, command: CairnCommand) -> object:
+        self.commands.append(command)
         return object()
 
 
@@ -43,7 +43,7 @@ async def test_spawn_signal_triggers_spawn(tmp_path: Path) -> None:
 
     await _run_watcher_once(handler)
 
-    assert orch.commands == [(CommandType.QUEUE, None, "Add docs", TaskPriority.HIGH)]
+    assert orch.commands == [parse_command_payload("spawn", {"task": "Add docs", "priority": int(TaskPriority.HIGH)})]
     assert not (signals_dir / "spawn-1.json").exists()
 
 
@@ -59,8 +59,8 @@ async def test_accept_and_reject_signals_dispatch_and_cleanup(tmp_path: Path) ->
     await _run_watcher_once(handler)
 
     assert orch.commands == [
-        (CommandType.ACCEPT, "agent-a", None, None),
-        (CommandType.REJECT, "agent-b", None, None),
+        parse_command_payload(CommandType.ACCEPT, {"agent_id": "agent-a"}),
+        parse_command_payload(CommandType.REJECT, {"agent_id": "agent-b"}),
     ]
     assert not (signals_dir / "accept-agent-a.json").exists()
     assert not (signals_dir / "reject-agent-b.json").exists()
@@ -76,7 +76,7 @@ async def test_queue_signal_uses_default_priority_when_omitted(tmp_path: Path) -
 
     await _run_watcher_once(handler)
 
-    assert orch.commands == [(CommandType.QUEUE, None, "Backlog task", TaskPriority.NORMAL)]
+    assert orch.commands == [parse_command_payload("queue", {"task": "Backlog task"})]
 
 
 @pytest.mark.asyncio
@@ -92,22 +92,40 @@ async def test_signal_file_with_type_payload_dispatches_independent_of_filename(
 
     await handler.process_signals_once()
 
-    assert orch.commands == [(CommandType.QUEUE, None, "Typed queue", TaskPriority.NORMAL)]
+    assert orch.commands == [parse_command_payload("queue", {"task": "Typed queue"})]
     assert not (signals_dir / "custom-command.json").exists()
 
 
 @pytest.mark.asyncio
-async def test_polling_can_be_disabled_without_changing_command_parsing(tmp_path: Path) -> None:
+async def test_cli_and_signal_adapters_emit_equivalent_cairn_command(tmp_path: Path) -> None:
+    signals_dir = tmp_path / "signals"
+    signals_dir.mkdir(parents=True, exist_ok=True)
+    signal_file = signals_dir / "spawn-equivalent.json"
+    signal_file.write_text(json.dumps({"task": "equivalent task"}), encoding="utf-8")
+
+    handler = SignalHandler(tmp_path, StubOrchestrator())
+    signal_command = handler._parse_signal_file(signal_file)
+
+    assert signal_command == parse_command_payload("spawn", {"task": "equivalent task", "priority": int(TaskPriority.HIGH)})
+
+
+@pytest.mark.asyncio
+async def test_polling_can_be_disabled_without_changing_command_semantics(tmp_path: Path) -> None:
     orch = StubOrchestrator()
     handler = SignalHandler(tmp_path, orch, enable_polling=False)
     signals_dir = tmp_path / "signals"
     signals_dir.mkdir(parents=True, exist_ok=True)
-    (signals_dir / "spawn-compat.json").write_text(json.dumps({"task": "manual process"}), encoding="utf-8")
+    signal_file = signals_dir / "spawn-compat.json"
+    signal_file.write_text(json.dumps({"task": "manual process"}), encoding="utf-8")
+
+    parsed_before_watch = handler._parse_signal_file(signal_file)
 
     await handler.watch()
     assert orch.commands == []
-    assert (signals_dir / "spawn-compat.json").exists()
+    assert signal_file.exists()
 
     await handler.process_signals_once()
-    assert orch.commands == [(CommandType.QUEUE, None, "manual process", TaskPriority.HIGH)]
-    assert not (signals_dir / "spawn-compat.json").exists()
+
+    assert parsed_before_watch == parse_command_payload("spawn", {"task": "manual process", "priority": int(TaskPriority.HIGH)})
+    assert orch.commands == [parsed_before_watch]
+    assert not signal_file.exists()
