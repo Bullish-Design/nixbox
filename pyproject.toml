@@ -8,16 +8,44 @@ license = { text = "MIT" }
 authors = [{ name = "Bullish Design" }]
 dependencies = [
     "agentfs-sdk>=0.6.0",
+    "agentfs-pydantic",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.0.0",
+    "hypothesis>=6.0.0",
+    "ruff>=0.1.0",
 ]
 
 [tool.ruff]
 line-length = 120
 target-version = "py311"
 
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["agentfs-pydantic/tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+markers = [
+    "benchmark: mark test as a performance benchmark",
+    "slow: mark test as slow (deselect with '-m \"not slow\"')",
+]
+addopts = [
+    "--strict-markers",
+    "--verbose",
+]
+
 [tool.uv.workspace]
 members = [
-    "nixbox",
+    "agentfs-pydantic",
 ]
+
+[tool.uv.sources]
+agentfs-pydantic = { workspace = true }
 
 [tool.uv]
 prerelease = "allow"
