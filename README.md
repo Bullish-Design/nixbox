@@ -48,13 +48,30 @@ cairn up
 
 > `cairn-init` is still planned and is **not** part of the current Stage 3 CLI surface.
 
-### 4. Install Neovim Plugin
+### 4. Install and Load the Neovim Plugin
+
+Use any plugin manager and point it at `nixbox/cairn/nvim` (the plugin root in this repo).
 
 ```lua
--- In your Neovim config
-require('cairn').setup({
-  preview_same_location = true,  -- Open preview at same file:line
-})
+-- lazy.nvim example
+{
+  dir = '~/path/to/nixbox/cairn/nvim',
+  config = function()
+    require('cairn').setup({
+      preview_same_location = true,
+    })
+  end,
+}
+```
+
+```lua
+-- packer.nvim example
+use {
+  '~/path/to/nixbox/cairn/nvim',
+  config = function()
+    require('cairn').setup()
+  end,
+}
 ```
 
 ### 5. Use It
@@ -175,9 +192,11 @@ Switch with `Ctrl-b o` (standard tmux), test changes, run builds, then accept or
 
 ### Neovim Plugin
 
-- **`cairn/nvim/plugin/cairn.lua`** - Commands and keybindings
-- **`cairn/nvim/lua/cairn/tmux.lua`** - TMUX integration
-- **`cairn/nvim/lua/cairn/preview.lua`** - Preview management
+- **`cairn/nvim/plugin/cairn.lua`** - User command registration
+- **`cairn/nvim/lua/cairn/init.lua`** - Setup + keymap wiring
+- **`cairn/nvim/lua/cairn/commands.lua`** - Queue/accept/reject/list/select handlers
+- **`cairn/nvim/lua/cairn/tmux.lua`** - TMUX preview pane management
+- **`cairn/nvim/lua/cairn/watcher.lua`** - Stage 4 REVIEWING watcher + ghost trigger
 
 ### TMUX Config
 
@@ -317,6 +336,13 @@ Not yet implemented in Stage 3:
 - `cairn-init`
 - Neovim/TMUX UI commands (`:CairnQueue`, ghost text workflow) are Stage 4 scope.
 
+### Stage 4 Neovim Plugin Installation Notes
+
+- The plugin is loaded from `cairn/nvim` (not from repository root).
+- `plugin/cairn.lua` auto-registers user commands on startup.
+- Call `require('cairn').setup({...})` in your plugin manager `config` callback to apply custom keymaps/config.
+- Keep `plenary.nvim` installed for running the Stage 4 test suite under `cairn/nvim/tests/`.
+
 ### Stage 4 Neovim Test Invocation
 
 Run the Neovim plugin contract tests headlessly with Plenary/busted:
@@ -336,7 +362,7 @@ This validates Stage 4 UI contracts (command wiring, config/keymaps, tmux previe
 ```vim
 " In Neovim
 :CairnQueue "Add type hints to all functions"
-:CairnQueue "Refactor long functions" HIGH
+:CairnQueue! "Urgent: fix failing CI check"
 :CairnListTasks
 ```
 
@@ -365,9 +391,8 @@ This validates Stage 4 UI contracts (command wiring, config/keymaps, tmux previe
 " Select agent to preview
 :CairnSelectAgent agent-abc123
 
-" Cycle through agents
-:CairnPreviewNext
-:CairnPreviewPrev
+" Open preview for selected/latest agent
+:CairnPreview
 ```
 
 ### Jujutsu Integration
