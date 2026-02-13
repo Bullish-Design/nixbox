@@ -166,3 +166,24 @@ Recommended workflow during development:
    ```bash
    test-performance
    ```
+
+
+## Cairn Stage 3 Test Suite
+
+Run these commands from the repository root to validate Stage 3 orchestration contracts.
+
+```bash
+# Unit coverage for Stage 3 primitives
+uv run pytest tests/cairn/test_agent.py tests/cairn/test_queue.py tests/cairn/test_watcher.py
+
+# Integration coverage for orchestrator/workspace/signal processing
+uv run pytest tests/cairn/test_orchestrator.py tests/cairn/test_workspace.py tests/cairn/test_signals.py
+
+# Optional end-to-end smoke (headless)
+uv run pytest tests/cairn/test_e2e_smoke.py
+```
+
+Expected outcomes:
+- All unit and integration tests pass locally with no skips.
+- The optional e2e smoke test passes and confirms spawn → reviewing → accept/reject flow.
+- If a local environment is slow, `test_orchestrator.py` may take slightly longer due to async lifecycle polling.
