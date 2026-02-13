@@ -10,13 +10,15 @@ The roadmap follows a **stagegate development model** where each stage must be f
 
 | Stage | Name | Duration | Dependencies | Status |
 |-------|------|----------|--------------|--------|
-| [1](ROADMAP-STEP_1.md) | Foundation - Storage & Data Layer | 2-3 weeks | None | 🟡 In Progress |
-| [2](ROADMAP-STEP_2.md) | Execution Layer - Monty Sandbox | 2-3 weeks | Stage 1 | ⚪ Not Started |
-| [3](ROADMAP-STEP_3.md) | Orchestration Core | 3-4 weeks | Stage 1, 2 | ⚪ Not Started |
-| [4](ROADMAP-STEP_4.md) | UI Layer - Neovim & TMUX | 2-3 weeks | Stage 1, 2, 3 | ⚪ Not Started |
+| [1](ROADMAP-STEP_1.md) | Foundation - Storage & Data Layer | 2-3 weeks | None | ✅ Complete |
+| [2](ROADMAP-STEP_2.md) | Execution Layer - Monty Sandbox | 2-3 weeks | Stage 1 | ✅ Complete |
+| [3](ROADMAP-STEP_3.md) | Orchestration Core | 3-4 weeks | Stage 1, 2 | ✅ Complete |
+| [4](ROADMAP-STEP_4.md) | UI Layer - Neovim & TMUX | 2-3 weeks | Stage 1, 2, 3 | 🟡 Ready to Start |
 | [5](ROADMAP-STEP_5.md) | Integration & Polish | 3-4 weeks | All previous | ⚪ Not Started |
 
 **Total Estimated Duration**: 12-17 weeks
+
+**Current Milestone**: Stage 3 complete; Stage 4 is now unblocked.
 
 ## Stage Summaries
 

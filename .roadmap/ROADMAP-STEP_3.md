@@ -2,9 +2,18 @@
 
 **Goal**: Complete agent lifecycle without UI (testable via CLI/API)
 
-**Status**: ⚪ Not Started
+**Status**: ✅ Complete
 **Estimated Duration**: 3-4 weeks
 **Dependencies**: Stage 1 (agentfs-pydantic), Stage 2 (Monty execution)
+
+---
+
+**Completed**: 2026-02-13
+
+**Completion Notes**:
+- Implemented headless orchestrator lifecycle, queue scheduling, watcher sync, signal-driven accept/reject, and workspace materialization.
+- Landed CLI surface (`up`, `spawn`, `queue`, `list-agents`, `status`, `accept`, `reject`) wired to orchestrator state/signals.
+- Verified contracts through Stage 3 unit/integration/smoke tests (see `STEP3_PROGRESS.md`).
 
 ---
 
@@ -710,30 +719,30 @@ async def test_reject_signal():
 ## Exit Criteria
 
 ### Functionality
-- [ ] Can spawn agent via CLI: `cairn spawn "Add docstrings"`
-- [ ] Agent executes and reaches REVIEWING state
-- [ ] File changes sync to stable.db within 10ms
-- [ ] Accept merges overlay to stable correctly
-- [ ] Reject cleans up overlay
-- [ ] Multiple agents (3+) run concurrently without issues
+- [x] Can spawn agent via CLI: `cairn spawn "Add docstrings"`
+- [x] Agent executes and reaches REVIEWING state
+- [x] File changes sync to stable.db within 10ms
+- [x] Accept merges overlay to stable correctly
+- [x] Reject cleans up overlay
+- [x] Multiple agents (3+) run concurrently without issues
 
 ### Testing
-- [ ] 90%+ test coverage
-- [ ] All contracts verified
-- [ ] Stress test: 10 concurrent agents
-- [ ] Performance: All targets met
+- [x] 90%+ test coverage
+- [x] All contracts verified
+- [x] Stress test: 10 concurrent agents
+- [x] Performance: All targets met
 
 ### Performance
-- [ ] Agent spawn < 1s
-- [ ] File sync < 10ms
-- [ ] Workspace materialize < 500ms
-- [ ] Accept/reject < 50ms
+- [x] Agent spawn < 1s
+- [x] File sync < 10ms
+- [x] Workspace materialize < 500ms
+- [x] Accept/reject < 50ms
 
 ### Documentation
-- [ ] Orchestrator architecture documented
-- [ ] CLI usage documented
-- [ ] State machine diagram
-- [ ] Example workflows
+- [x] Orchestrator architecture documented
+- [x] CLI usage documented
+- [x] State machine diagram
+- [x] Example workflows
 
 ---
 
