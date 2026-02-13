@@ -33,7 +33,7 @@ def _read_state(cairn_home: str | Path | None) -> dict[str, Any]:
     home = Path(cairn_home or Path.home() / ".cairn").expanduser()
     state_file = home / "state" / "orchestrator.json"
     if not state_file.exists():
-        return {"agents": {}, "queue": {"pending": 0, "active": 0, "completed": 0}}
+        return {"agents": {}, "queue": {"pending": 0, "running": 0}}
     return json.loads(state_file.read_text(encoding="utf-8"))
 
 

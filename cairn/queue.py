@@ -32,36 +32,32 @@ class QueuedTask:
 
 
 class TaskQueue:
-    """Priority queue with max-concurrency gating and completion tracking."""
+    """Plain async priority queue with no concurrency bookkeeping."""
 
-    def __init__(self, max_concurrent: int = 5):
-        self.max_concurrent = max_concurrent
+    def __init__(self):
         self._queue: list[QueuedTask] = []
-        self.active_count = 0
-        self.completed_count = 0
-        self._lock = asyncio.Lock()
+        self._condition = asyncio.Condition()
 
     async def enqueue(self, task: str, priority: TaskPriority = TaskPriority.NORMAL) -> None:
         """Add task to queue."""
         queued_task = QueuedTask(task=task, priority=priority)
-        async with self._lock:
+        async with self._condition:
             heapq.heappush(self._queue, queued_task)
+            self._condition.notify()
 
     async def dequeue(self) -> QueuedTask | None:
-        """Get next task unless queue empty or active tasks hit max concurrency."""
-        async with self._lock:
-            if self.active_count >= self.max_concurrent or not self._queue:
+        """Get next task or None when queue is empty."""
+        async with self._condition:
+            if not self._queue:
                 return None
 
-            task = heapq.heappop(self._queue)
-            self.active_count += 1
-            return task
+            return heapq.heappop(self._queue)
 
-    def mark_complete(self, task: QueuedTask | None = None) -> None:
-        """Mark a running task complete and release concurrency slot."""
-        if self.active_count > 0:
-            self.active_count -= 1
-            self.completed_count += 1
+    async def dequeue_wait(self) -> QueuedTask:
+        """Wait until one task is available and return it."""
+        async with self._condition:
+            await self._condition.wait_for(lambda: bool(self._queue))
+            return heapq.heappop(self._queue)
 
     def size(self) -> int:
         """Get current queue size."""

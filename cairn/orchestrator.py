@@ -52,7 +52,10 @@ class CairnOrchestrator:
         self.stable: AgentFS | None = None
         self.bin: AgentFS | None = None
         self.active_agents: dict[str, AgentContext] = {}
-        self.queue = TaskQueue(max_concurrent=self.config.max_concurrent_agents)
+        self.queue = TaskQueue()
+        self._worker_task: asyncio.Task[None] | None = None
+        self._semaphore = asyncio.Semaphore(self.config.max_concurrent_agents)
+        self._running_tasks: set[asyncio.Task[None]] = set()
 
         self.llm = code_generator or CodeGenerator()
         self.executor = executor or AgentExecutor()
@@ -79,6 +82,8 @@ class CairnOrchestrator:
         self.watcher = FileWatcher(self.project_root, self.stable)
         self.signals = SignalHandler(self.cairn_home, self)
         self.materializer = WorkspaceMaterializer(self.cairn_home, stable_fs=self.stable)
+        if self._worker_task is None or self._worker_task.done():
+            self._worker_task = asyncio.create_task(self._worker_loop())
         await self.persist_state()
 
     async def run(self) -> None:
@@ -92,7 +97,6 @@ class CairnOrchestrator:
         await asyncio.gather(
             self.watcher.watch(),
             self.signals.watch(),
-            self.auto_spawn_loop(),
         )
 
     async def spawn_agent(
@@ -119,7 +123,6 @@ class CairnOrchestrator:
 
         await self.queue.enqueue(agent_id, priority)
         await self.persist_state()
-        await self._maybe_start_agents()
         return agent_id
 
     async def accept_agent(self, agent_id: str) -> None:
@@ -170,37 +173,28 @@ class CairnOrchestrator:
         self.active_agents.pop(agent_id, None)
         await self.persist_state()
 
-    async def auto_spawn_loop(self) -> None:
-        """Continuously schedule queued tasks while concurrency slots are available."""
+    async def _worker_loop(self) -> None:
+        """Continuously dispatch queued tasks through a semaphore-gated runner."""
         while True:
-            await self._maybe_start_agents()
-            await asyncio.sleep(0.1)
-
-    async def _maybe_start_agents(self) -> None:
-        """Start queued agent tasks respecting max concurrency."""
-        while True:
-            queued = await self.queue.dequeue()
-            if queued is None:
-                return
-
+            queued = await self.queue.dequeue_wait()
             agent_id = queued.task
-            ctx = self.active_agents.get(agent_id)
-            if ctx is None:
-                self.queue.mark_complete()
-                await self.persist_state()
-                continue
-
-            asyncio.create_task(self._run_agent(agent_id))
+            await self._semaphore.acquire()
+            task = asyncio.create_task(self._run_agent(agent_id))
+            self._running_tasks.add(task)
+            task.add_done_callback(self._running_tasks.discard)
 
     async def _run_agent(self, agent_id: str) -> None:
         """Run one agent through generation/execution/submission lifecycle."""
-        ctx = self._get_agent(agent_id)
-
-        async def transition(new_state: AgentState) -> None:
-            ctx.transition(new_state)
-            await self.persist_state()
+        ctx = self.active_agents.get(agent_id)
 
         try:
+            if ctx is None:
+                return
+
+            async def transition(new_state: AgentState) -> None:
+                ctx.transition(new_state)
+                await self.persist_state()
+
             await transition(AgentState.SPAWNING)
             await transition(AgentState.GENERATING)
             generated = await self.llm.generate(ctx.task)
@@ -233,7 +227,7 @@ class CairnOrchestrator:
             ctx.error = str(exc)
             await transition(AgentState.ERRORED)
         finally:
-            self.queue.mark_complete()
+            self._semaphore.release()
             await self.persist_state()
 
     async def persist_state(self) -> None:
@@ -246,8 +240,17 @@ class CairnOrchestrator:
             "updated_at": time.time(),
             "queue": {
                 "pending": self.queue.size(),
-                "active": self.queue.active_count,
-                "completed": self.queue.completed_count,
+                "running": sum(
+                    1
+                    for ctx in self.active_agents.values()
+                    if ctx.state
+                    in {
+                        AgentState.SPAWNING,
+                        AgentState.GENERATING,
+                        AgentState.EXECUTING,
+                        AgentState.SUBMITTING,
+                    }
+                ),
             },
             "agents": {
                 agent_id: {
