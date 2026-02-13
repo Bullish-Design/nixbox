@@ -7,7 +7,16 @@ import asyncio
 import json
 from pathlib import Path
 
-from cairn.commands import CairnCommand, CommandResult, parse_command_payload
+from cairn.commands import (
+    AcceptCommand,
+    CairnCommand,
+    CommandResult,
+    ListAgentsCommand,
+    QueueCommand,
+    RejectCommand,
+    StatusCommand,
+    parse_command_payload,
+)
 from cairn.orchestrator import CairnOrchestrator
 from cairn.queue import TaskPriority
 
@@ -34,7 +43,12 @@ class CairnCommandClient:
 
 async def _submit_command(args: argparse.Namespace, command: CairnCommand) -> CommandResult:
     client = CairnCommandClient(project_root=args.project_root, cairn_home=args.cairn_home)
-    return await client.submit(command)
+
+    match command:
+        case QueueCommand() | AcceptCommand() | RejectCommand() | StatusCommand() | ListAgentsCommand():
+            return await client.submit(command)
+
+    raise ValueError(f"unsupported command type: {command.type.value}")
 
 
 async def _run_spawn(args: argparse.Namespace) -> int:
