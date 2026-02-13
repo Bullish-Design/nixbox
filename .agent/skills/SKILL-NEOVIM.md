@@ -1,63 +1,13 @@
-# SKILL: Neovim Plugin Development
+# SKILL: Neovim plugin workflow
 
-Quick reference for Cairn Neovim plugin development.
+Use this skill when changing plugin commands, keymaps, watcher hooks, or preview UX.
 
-## Plugin Structure
+Architecture context lives in [CONCEPT.md](../../CONCEPT.md) and [SPEC.md](../../SPEC.md).
 
-```
-cairn/nvim/
-├── plugin/cairn.lua       # Entry point
-└── lua/cairn/
-    ├── init.lua           # Main module
-    ├── watcher.lua        # FS event watching
-    ├── tmux.lua           # TMUX integration
-    ├── ghost.lua          # Ghost text rendering
-    └── preview.lua        # Preview management
-```
+## Workflow
 
-## Main Plugin
-
-```lua
--- plugin/cairn.lua
-local M = {}
-
-function M.setup(opts)
-  require('cairn').setup(opts)
-end
-
-return M
-```
-
-## FS Watcher
-
-```lua
--- lua/cairn/watcher.lua
-local function watch_previews()
-  local handle = vim.loop.new_fs_event()
-  handle:start(
-    vim.fn.expand('~/.cairn/previews'),
-    {},
-    vim.schedule_wrap(function(err, filename, events)
-      if filename and filename:match('%.diff$') then
-        local agent_id = filename:gsub('%.diff$', '')
-        update_preview(agent_id)
-      end
-    end)
-  )
-end
-```
-
-## Commands
-
-```lua
-vim.api.nvim_create_user_command('CairnQueue', function(opts)
-  queue_task(opts.args)
-end, { nargs = '+' })
-
-vim.api.nvim_create_user_command('CairnAccept', accept, {})
-vim.api.nvim_create_user_command('CairnReject', reject, {})
-```
-
-## See Also
-- [SKILL-TMUX.md](SKILL-TMUX.md) - TMUX integration
-- [SPEC.md](../../SPEC.md) - UI layer
+1. Keep command surface consistent (`Queue`, `Accept`, `Reject`, `Preview`, status/list commands).
+2. Ensure configuration defaults are backward-compatible.
+3. Keep watcher events scoped to Cairn state/previews.
+4. Verify ghost/preview cues do not silently apply agent changes.
+5. Run plugin contract tests after edits.
