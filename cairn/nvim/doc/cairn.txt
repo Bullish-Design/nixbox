@@ -1,0 +1,70 @@
+*cairn.txt*  Cairn Neovim integration
+
+Cairn provides editor commands for queueing tasks, previewing agent work in TMUX,
+and signaling accept/reject decisions to the orchestrator state in |~/.cairn|.
+
+==============================================================================
+COMMANDS                                                *cairn-commands*
+
+:CairnQueue[!] {task}
+    Queue a task by appending it to:
+      {cairn_home}/queue/tasks.json
+    With !, priority is HIGH; otherwise NORMAL.
+
+:CairnAccept
+    Signal acceptance for the selected/latest agent by writing:
+      {cairn_home}/signals/accept-{agent_id}
+
+:CairnReject
+    Signal rejection for the selected/latest agent by writing:
+      {cairn_home}/signals/reject-{agent_id}
+
+:CairnPreview
+    Open (or reuse) the TMUX preview pane titled "cairn-preview" and launch
+    Neovim in the agent workspace.
+
+:CairnListTasks
+    Show queued tasks from {cairn_home}/queue/tasks.json.
+
+:CairnListAgents
+    Show active agents from {cairn_home}/state/active_agents.json.
+
+:CairnSelectAgent {agent_id}
+    Set selected agent in:
+      {cairn_home}/state/latest_agent
+
+==============================================================================
+CONFIGURATION                                            *cairn-config*
+
+Call setup in your config:
+>
+  require('cairn').setup({
+    cairn_home = vim.fn.expand('~/.cairn'),
+    preview_same_location = true,
+    auto_reload = false,
+    ghost_text = true,
+    keymaps = {
+      accept = '<leader>a',
+      reject = '<leader>r',
+      preview = '<leader>p',
+    },
+  })
+<
+
+==============================================================================
+KEYMAPS                                                   *cairn-keymaps*
+
+Default keymaps:
+  <leader>a    Accept Cairn changes
+  <leader>r    Reject Cairn changes
+  <leader>p    Open Cairn preview pane
+
+==============================================================================
+WATCHER                                                   *cairn-watcher*
+
+A timer checks {cairn_home}/state/active_agents.json every 500ms. When an
+agent enters REVIEWING state and a matching preview diff exists in
+{cairn_home}/previews/{agent_id}.diff, Cairn parses additions and renders
+virtual ghost lines in the current buffer.
+
+vim:tw=78:ts=8:noet:ft=help:norl:
