@@ -165,33 +165,23 @@ INFO
 
   scripts.agentfs-session-create.exec = ''
     cd "${root}"
-
-    if [ -z "${PROJECT_NAME:-}" ]; then
-      echo "PROJECT_NAME must be set"
-      exit 1
-    fi
-
-    if [ -e ".agentfs/$PROJECT_NAME.db" ]; then
-      echo "AgentFS session '$PROJECT_NAME' already exists"
-      exit 0
-    fi
-
-    exec ${agentfsPackage}/bin/agentfs init "$PROJECT_NAME" --base "${root}"
+    export NIXBOX_ROOT="${root}"
+    export AGENTFS_BIN="${agentfsPackage}/bin/agentfs"
+    exec uv run --script ./scripts/agentfs_session_create.py "$@"
   '';
 
   scripts.agentfs-session-shell.exec = ''
     cd "${root}"
+    export NIXBOX_ROOT="${root}"
+    export AGENTFS_BIN="${agentfsPackage}/bin/agentfs"
+    exec uv run --script ./scripts/agentfs_session_shell.py "$@"
+  '';
 
-    if [ -z "${PROJECT_NAME:-}" ]; then
-      echo "PROJECT_NAME must be set"
-      exit 1
-    fi
-
-    if [ ! -e ".agentfs/$PROJECT_NAME.db" ]; then
-      ${agentfsPackage}/bin/agentfs init "$PROJECT_NAME" --base "${root}"
-    fi
-
-    exec ${agentfsPackage}/bin/agentfs exec "$PROJECT_NAME" "${SHELL:-bash}" -l
+  scripts.agentfs-session-boot.exec = ''
+    cd "${root}"
+    export NIXBOX_ROOT="${root}"
+    export AGENTFS_BIN="${agentfsPackage}/bin/agentfs"
+    exec uv run --script ./scripts/agentfs_session_boot.py "$@"
   '';
 
   # Test runner scripts
