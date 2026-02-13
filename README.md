@@ -1,65 +1,442 @@
-# nixbox
+# Nixbox
 
-`nixbox` is now a **devenv.sh modular plugin template** for running a local
-[AgentFS](https://docs.turso.tech/agentfs/introduction) database process inside sandboxed development
-filesystems.
+> A modular devenv.sh plugin providing agentic development environments
 
-## What this plugin provides
+**Nixbox** enables seamless AI agent collaboration in your development workflow through a composable stack of overlayed filesystems, sandboxed execution, and intelligent workspace management.
 
-- A configurable `agentfs` process under `processes.agentfs`.
-- Built-in environment variables for all runtime knobs.
-- The upstream `agentfs` CLI available directly in the dev shell.
-- Helper scripts to inspect or connect to the local AgentFS instance.
-- A layout that can be copied into any devenv project and split into modules.
+## What is Nixbox?
 
-## Configuration model
+Nixbox is a collection of Nix modules that bring **Cairn** - an interactive agentic workspace - to any devenv-managed project. It provides:
 
-All configuration is done through standard devenv functionality (`env`, `packages`, `processes`, `scripts`):
+- **AgentFS Process Management** - Local SQLite-based filesystem with overlay semantics
+- **Cairn Orchestrator** - Spawn AI agents that propose changes in isolated overlays
+- **TMUX Integration** - Hot-swap between your stable workspace and agent previews
+- **Neovim Plugin** - Review and merge agent changes with familiar keybindings
+- **Jujutsu Integration** - Agent changes map to jj change concepts
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `AGENTFS_ENABLED` | `1` | Toggle process startup (`1` = enabled, `0` = disabled). |
-| `AGENTFS_HOST` | `127.0.0.1` | Bind host for the AgentFS process. |
-| `AGENTFS_PORT` | `8081` | Bind port for the AgentFS process. |
-| `AGENTFS_DATA_DIR` | `.devenv/state/agentfs` | Persistent local data directory. |
-| `AGENTFS_DB_NAME` | `sandbox` | Logical database name used for local sandboxing. |
-| `AGENTFS_LOG_LEVEL` | `info` | Log level forwarded to the runtime command. |
-| `AGENTFS_EXTRA_ARGS` | *(empty)* | Escape hatch for additional runtime flags. |
+## Quick Start
 
-## Quick start
-
-1. Enter the shell:
-
-   ```bash
-   devenv shell
-   ```
-
-2. Start background processes:
-
-   ```bash
-   devenv up
-   ```
-
-3. Inspect effective runtime settings:
-
-   ```bash
-   devenv run agentfs-info
-   ```
-
-## Module usage pattern
-
-You can factor this repo into reusable modules by moving the AgentFS block into
-something like `modules/agentfs.nix` and importing it from your own `devenv.nix`:
+### 1. Add Nixbox to Your Project
 
 ```nix
+# devenv.nix
+{ inputs, ... }:
 {
-  imports = [ ./modules/agentfs.nix ];
+  imports = [
+    ./nixbox/modules/agentfs.nix  # Core: AgentFS process
+    ./nixbox/modules/cairn.nix    # Optional: Agentic workspace
+  ];
 }
 ```
 
-## Notes
+### 2. Enter Development Environment
 
-- `devenv.nix` pins the upstream AgentFS flake (`github:tursodatabase/agentfs`) and exposes its default package in `packages`, so the `agentfs` binary is always available in-shell.
-- This template expects a Turso CLI that supports AgentFS subcommands.
-- If your CLI version differs, adjust `processes.agentfs.exec` and keep all options in
-  `env` variables so downstream projects remain declarative.
+```bash
+devenv shell
+
+# AgentFS starts automatically in background
+# Check status:
+agentfs-info
+```
+
+### 3. Initialize Cairn Workspace
+
+```bash
+# Initialize stable layer from your project
+cairn-init
+
+# Start the orchestrator
+cairn up
+```
+
+### 4. Install Neovim Plugin
+
+```lua
+-- In your Neovim config
+require('cairn').setup({
+  preview_same_location = true,  -- Open preview at same file:line
+})
+```
+
+### 5. Use It
+
+```vim
+" In Neovim, queue an agent task
+:CairnQueue "Add docstrings to all functions"
+
+" Agent runs in background, shows ghost text when ready
+" Press <Leader>a to accept or <Leader>r to reject
+```
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────┐
+│  Your Project (Stable Layer)                │
+│  ↓                                           │
+│  AgentFS (stable.db)                         │
+│  ├── Agentlet 1 (overlay)                   │
+│  ├── Agentlet 2 (overlay)                   │
+│  └── Agentlet N (overlay)                   │
+│                                              │
+│  Each agent:                                 │
+│  - Reads from stable (copy-on-write)        │
+│  - Writes to own overlay                    │
+│  - Runs in Monty sandbox                    │
+│  - Generates code via LLM                   │
+└─────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────┐
+│  TMUX Workspace Layout                      │
+│  ┌────────────┬────────────┐                │
+│  │  Stable    │  Preview   │                │
+│  │  Neovim    │  Neovim    │                │
+│  │            │            │                │
+│  │  Your      │  Agent's   │                │
+│  │  Changes   │  Changes   │                │
+│  └────────────┴────────────┘                │
+│  │ Orchestrator Logs       │                │
+│  └─────────────────────────┘                │
+└─────────────────────────────────────────────┘
+```
+
+## Core Concepts
+
+### The Cairn Metaphor
+
+A **cairn** is a pile of stones that hikers add to over time - each person contributes by adding stones to the top. Similarly, in Cairn workspace:
+
+- **Humans** add changes directly to the stable layer
+- **Agents** propose changes in overlays
+- **Accept** adds the agent's stones to the cairn (merge)
+- **Reject** discards the agent's proposed stones
+
+No complex merging, no state machines - just a growing pile of collaborative changes.
+
+### AgentFS Overlays
+
+Each agent gets its own SQLite database that overlays the stable layer:
+
+```python
+# Agent reads file (falls through to stable if not modified)
+content = await agent_fs.fs.read_file("main.py")
+
+# Agent writes file (only to its overlay)
+await agent_fs.fs.write_file("main.py", new_content)
+
+# Stable layer unchanged until you accept
+```
+
+### Monty Sandbox
+
+Agent code runs in a minimal Python interpreter with no access to:
+- File system (except via external functions)
+- Network (except via external functions)
+- Imports (no stdlib or third-party packages)
+- Host environment
+
+Agents can only call functions you provide:
+```python
+read_file(path)
+write_file(path, content)
+ask_llm(prompt, context)
+search_files(pattern)
+submit_result(summary, files)
+```
+
+### TMUX Hot-Swapping
+
+Instead of ghost text in one editor, run two Neovim instances:
+
+1. **Stable Neovim** - Your main editor, always up
+2. **Preview Neovim** - Agent's workspace, materialized on-demand
+
+Switch with `Ctrl-b o` (standard tmux), test changes, run builds, then accept or reject.
+
+## Components
+
+### Nix Modules
+
+- **`modules/agentfs.nix`** - AgentFS process, environment, scripts
+- **`modules/cairn.nix`** - Orchestrator, tmux, Python dependencies
+
+### Python Libraries
+
+- **`agentfs-pydantic`** - Type-safe models for AgentFS SDK
+  - Published to PyPI independently
+  - Pydantic models + View query interface
+  - Optional CLI tools (`pip install agentfs-pydantic[cli]`)
+
+### Orchestrator
+
+- **`cairn/orchestrator.py`** - Main process managing agents
+- **`cairn/queue.py`** - Task queue with priorities
+- **`cairn/gc.py`** - Workspace garbage collection
+- **`cairn/jj.py`** - Jujutsu integration
+
+### Neovim Plugin
+
+- **`cairn/nvim/plugin/cairn.lua`** - Commands and keybindings
+- **`cairn/nvim/lua/cairn/tmux.lua`** - TMUX integration
+- **`cairn/nvim/lua/cairn/preview.lua`** - Preview management
+
+### TMUX Config
+
+- **`cairn/tmux/.tmuxp.yaml`** - Initial workspace layout
+
+## Requirements
+
+- **NixOS** or Nix with devenv
+- **Python 3.11+**
+- **Neovim 0.10+**
+- **TMUX 3.0+**
+- **Jujutsu** (optional, for VCS integration)
+- **LLM Provider** (local via Ollama, or remote via API)
+
+## Installation
+
+### As a Submodule
+
+```bash
+cd your-project
+git submodule add https://github.com/yourusername/nixbox.git
+```
+
+### Direct Clone
+
+```bash
+cd your-project
+git clone https://github.com/yourusername/nixbox.git
+```
+
+### Import Modules
+
+```nix
+# devenv.nix
+{ inputs, ... }:
+{
+  imports = [
+    ./nixbox/modules/agentfs.nix
+    ./nixbox/modules/cairn.nix
+  ];
+
+  # Optional: customize
+  env.CAIRN_MAX_CONCURRENT_AGENTS = "3";
+  env.CAIRN_LLM_MODEL = "gpt-4";
+}
+```
+
+## Configuration
+
+### Environment Variables
+
+```bash
+# AgentFS
+AGENTFS_HOST=127.0.0.1
+AGENTFS_PORT=8081
+AGENTFS_DATA_DIR=.devenv/state/agentfs
+
+# Cairn
+CAIRN_HOME=~/.cairn
+CAIRN_MAX_CONCURRENT_AGENTS=5
+CAIRN_LLM_MODEL=gpt-4
+CAIRN_LLM_PROVIDER=openai  # or 'ollama'
+```
+
+### LLM Configuration
+
+Cairn uses the [`llm`](https://llm.datasette.io/) library for LLM access:
+
+```bash
+# Install a model
+llm install llm-gpt4all
+llm models default gpt4all-falcon
+
+# Or use OpenAI
+export OPENAI_API_KEY=sk-...
+llm models default gpt-4
+
+# Or use Ollama
+llm install llm-ollama
+llm models default ollama/qwen2.5-coder:7b
+```
+
+### Cairn Config
+
+```toml
+# ~/.cairn/config.toml
+
+[orchestrator]
+max_concurrent_agents = 5
+auto_materialize = true
+
+[gc]
+max_age_hours = 1
+max_workspaces = 10
+cleanup_on_accept = true
+cleanup_on_reject = true
+
+[tmux]
+auto_create_session = true
+layout = "main-vertical"
+
+[llm]
+provider = "openai"
+model = "gpt-4"
+temperature = 0.2
+```
+
+## Usage
+
+### Queue Agent Tasks
+
+```vim
+" In Neovim
+:CairnQueue "Add type hints to all functions"
+:CairnQueue "Refactor long functions" HIGH
+:CairnListTasks
+```
+
+### Review Changes
+
+```vim
+" Ghost text appears when agent finishes
+" Press <Leader>p to open preview workspace
+
+" In preview tmux pane:
+" - Edit files
+" - Run tests
+" - Check builds
+
+" Accept or reject
+:CairnAccept
+:CairnReject
+```
+
+### Multiple Agents
+
+```vim
+" List active agents
+:CairnListAgents
+
+" Select agent to preview
+:CairnSelectAgent agent-abc123
+
+" Cycle through agents
+:CairnPreviewNext
+:CairnPreviewPrev
+```
+
+### Jujutsu Integration
+
+```bash
+# Each agent creates a jj change
+jj log
+# ○ agent-abc123: Add docstrings
+# ○ agent-def456: Add type hints
+# @ working_copy: Your changes
+
+# Accept merges agent change into working copy
+:CairnAccept  # → jj squash agent-abc123
+
+# Reject abandons the change
+:CairnReject  # → jj abandon agent-def456
+```
+
+## Development
+
+### Project Structure
+
+```
+nixbox/
+├── modules/              # Nix modules
+│   ├── agentfs.nix
+│   └── cairn.nix
+├── agentfs-pydantic/    # Pydantic library
+│   ├── src/
+│   ├── tests/
+│   └── pyproject.toml
+├── cairn/               # Orchestrator
+│   ├── orchestrator.py
+│   ├── queue.py
+│   ├── gc.py
+│   ├── jj.py
+│   ├── nvim/           # Neovim plugin
+│   └── tmux/           # TMUX config
+├── examples/           # Example configurations
+└── docs/              # Documentation
+    ├── CONCEPT.md
+    ├── SPEC.md
+    ├── AGENT.md
+    └── skills/
+```
+
+### Contributing
+
+See [AGENT.md](AGENT.md) for instructions on working with AI agents on this codebase.
+
+### Skills Documentation
+
+Developer-focused guides for specific subsystems:
+
+- [SKILL-AGENTFS.md](docs/skills/SKILL-AGENTFS.md) - Working with AgentFS SDK
+- [SKILL-MONTY.md](docs/skills/SKILL-MONTY.md) - Monty sandbox integration
+- [SKILL-TMUX.md](docs/skills/SKILL-TMUX.md) - TMUX workspace patterns
+- [SKILL-NEOVIM.md](docs/skills/SKILL-NEOVIM.md) - Neovim plugin development
+- [SKILL-JJ.md](docs/skills/SKILL-JJ.md) - Jujutsu VCS integration
+- [SKILL-DEVENV.md](docs/skills/SKILL-DEVENV.md) - Nix/devenv module patterns
+
+## Why Nixbox?
+
+### Traditional Development
+```
+Human writes code → Commit → Test → Deploy
+```
+
+### AI-Assisted Development (Copilot, Cursor)
+```
+Human + AI writes code → Commit → Test → Deploy
+```
+
+### Agentic Development (Nixbox/Cairn)
+```
+Human writes code ─┐
+                   ├→ Stable Layer → Review → Commit → Test → Deploy
+Agent proposes ───┘
+```
+
+**Key Difference:** Agents work independently in overlays, humans review and merge. No interruption to flow, no fighting with AI over cursor control.
+
+## Comparison
+
+| Feature | Copilot/Cursor | Devin | Nixbox/Cairn |
+|---------|----------------|-------|--------------|
+| **Execution** | Inline suggestions | Cloud containers | Local Monty sandbox |
+| **Review** | Accept/reject inline | Chat/watch | Dedicated preview workspace |
+| **Safety** | Code in your editor | Isolated environment | Isolated overlay + sandbox |
+| **Tooling** | Works with your files | Limited access | Full tooling in preview |
+| **Cost** | Subscription | Pay per task | Local LLM or API |
+| **Privacy** | Code sent to cloud | Code sent to cloud | Local-first option |
+| **Speed** | Instant | Minutes | Seconds |
+
+## License
+
+MIT
+
+## Links
+
+- [Documentation](docs/)
+- [AgentFS Specification](https://docs.turso.tech/agentfs)
+- [Monty Sandbox](https://github.com/pydantic/monty)
+- [llm library](https://llm.datasette.io/)
+- [devenv](https://devenv.sh/)
+- [Jujutsu VCS](https://github.com/martinvonz/jj)
+
+## Support
+
+- [Issues](https://github.com/yourusername/nixbox/issues)
+- [Discussions](https://github.com/yourusername/nixbox/discussions)
+
+---
+
+**Built with ❤️ for developers who want AI assistants that know their place (in overlays).**
