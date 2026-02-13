@@ -6,6 +6,9 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Bullish Design" }]
+dependencies = [
+    "agentfs-sdk>=0.6.0",
+]
 
 [tool.ruff]
 line-length = 120

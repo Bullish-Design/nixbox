@@ -6,6 +6,53 @@ requires-python = ">=3.11"
 prerelease-mode = "allow"
 
 [[package]]
+name = "agentfs-sdk"
+version = "0.6.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyturso" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/9e/ce/777df8b68dceb0e2aac121eb9b37bfd01b4c9995f7f249e7c3782cd05ccf/agentfs_sdk-0.6.0.tar.gz", hash = "sha256:3d7693c6c2102e82933447f77bb8803df0ef9a041342ae759361e4dab2f8db62", size = 27678, upload-time = "2026-02-05T08:30:05.963Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b6/c6/482151a5a20ab75d84bb93b537a936a33f8393b46e83760af30ee738e86e/agentfs_sdk-0.6.0-py3-none-any.whl", hash = "sha256:4b483e0484541f503fb258b9fc6696b6952153f09451644e53e92c6716a6267c", size = 19149, upload-time = "2026-02-05T08:30:04.683Z" },
+]
+
+[[package]]
 name = "nixbox"
 version = "0.1.0"
 source = { virtual = "." }
+dependencies = [
+    { name = "agentfs-sdk" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "agentfs-sdk", specifier = ">=0.6.0" }]
+
+[[package]]
+name = "pyturso"
+version = "0.4.0rc17"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ec/cc/aada8d3bd2e67f8d38bad43cec1b72c9eafc6f9e79f5d6bc0b247eee33d9/pyturso-0.4.0rc17.tar.gz", hash = "sha256:3b9a5d39c425c085337f84b1c3e7cfd46ea8a4de439a59c9a04fc6d46538877d", size = 1423097, upload-time = "2025-12-17T08:34:41.596Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/be/03/acb7e9bf43f38fb59f1956b2bdacc5b8b9e197f179cabefac18425df31fa/pyturso-0.4.0rc17-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:e00b8eb77a2a372b99dbda7b445b374be235a70c37527260cea3e020fded842c", size = 3902415, upload-time = "2025-12-17T08:34:11.295Z" },
+    { url = "https://files.pythonhosted.org/packages/0d/f7/9ae6a015280ea37665b5f98b8ded8884f9e812de1ab16e93bde6c774cb26/pyturso-0.4.0rc17-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:810cd493b54d190cd2757d1efef1f516aabce9b2ffabe813030b8063dc06e7fd", size = 13014740, upload-time = "2025-12-17T08:34:14.005Z" },
+    { url = "https://files.pythonhosted.org/packages/ad/95/83fb263f9d94dc81764edcd0ae48ceceada3d1a3b53fd58cb7921b342245/pyturso-0.4.0rc17-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:277b47261efe19431047bfd5e2d043b45a0c66e42cc0329f9125ccf7dd86960a", size = 3898375, upload-time = "2025-12-17T08:34:16.801Z" },
+    { url = "https://files.pythonhosted.org/packages/5d/7d/f3b3da7b64236f2606599974e7a436a72ec77f3399b47b2c8584ce57fcd3/pyturso-0.4.0rc17-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:ff91db467164feb038aea4f5bc82b801d39953645fccb748041774a3336bca7a", size = 13020246, upload-time = "2025-12-17T08:34:19.464Z" },
+    { url = "https://files.pythonhosted.org/packages/c1/86/cfcf1baf3d22f8d877e19ab0cb6cb859be808bb2c14fa4c4a48f2a3ecfbc/pyturso-0.4.0rc17-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:57a0fc0de045412d39e4012da4500b911360a32679c52660e2459ba683c3b909", size = 3898288, upload-time = "2025-12-17T08:34:22.36Z" },
+    { url = "https://files.pythonhosted.org/packages/a9/94/0a9ffdbf15c8041aad858839aa77b4237fee65e6a885ffd19776febd6037/pyturso-0.4.0rc17-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:4642698306a595b74eaaa954dfe2c184edb414988c6cbafe1066535205b711d1", size = 13018635, upload-time = "2025-12-17T08:34:25.283Z" },
+    { url = "https://files.pythonhosted.org/packages/df/5a/e5775a9953602090b366b8dce2c4ff07627c787732edb30106e72eeb10e0/pyturso-0.4.0rc17-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:1413c95e533bd4e0874da12c16f04f86bc395736a3da73b018f5d4e769779ce2", size = 3898142, upload-time = "2025-12-17T08:34:27.978Z" },
+    { url = "https://files.pythonhosted.org/packages/c4/aa/1a5a8297ee543051ed2d952e67b773bc653243f63ea4354008adca2e7691/pyturso-0.4.0rc17-cp314-cp314-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:0695a2f4b3a4df7f7e59d603dd5110bd7399c61ddc8437fd2111f8f339718561", size = 13013397, upload-time = "2025-12-17T08:34:32.006Z" },
+    { url = "https://files.pythonhosted.org/packages/ac/0b/894c6d09ee6efe84ec6604e5509e3acc012f206004f6fc027a4e64aa7127/pyturso-0.4.0rc17-pp311-pypy311_pp73-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:49c685b20e4b0028f9ef900de5e6d65b6b1199be7e458937130eb53967962986", size = 13011721, upload-time = "2025-12-17T08:34:38.315Z" },
+]
+
+[[package]]
+name = "typing-extensions"
+version = "4.15.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/72/94/1a15dd82efb362ac84269196e94cf00f187f7ed21c242792a923cdb1c61f/typing_extensions-4.15.0.tar.gz", hash = "sha256:0cea48d173cc12fa28ecabc3b837ea3cf6f38c6d1136f85cbaaf598984861466", size = 109391, upload-time = "2025-08-25T13:49:26.313Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/18/67/36e9267722cc04a6b9f15c7f3441c2363321a3ea07da7ae0c0707beb2a9c/typing_extensions-4.15.0-py3-none-any.whl", hash = "sha256:f0fa19c6845758ab08074a0cfa8b7aecb71c999ca73d62883bc25cc018c4e548", size = 44614, upload-time = "2025-08-25T13:49:24.86Z" },
+]
