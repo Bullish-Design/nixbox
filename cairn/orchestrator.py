@@ -19,6 +19,7 @@ from cairn.commands import CairnCommand, CommandResult, CommandType
 from cairn.code_generator import CodeGenerator
 from cairn.executor import AgentExecutor
 from cairn.external_functions import create_external_functions
+from cairn.lifecycle import LifecycleRecord, LifecycleStore
 from cairn.queue import TaskPriority, TaskQueue
 from cairn.signals import SignalHandler
 from cairn.watcher import FileWatcher
@@ -66,6 +67,7 @@ class CairnOrchestrator:
         self.watcher: FileWatcher | None = None
         self.signals: SignalHandler | None = None
         self.materializer: WorkspaceMaterializer | None = None
+        self.lifecycle: LifecycleStore | None = None
         self.state_file = self.cairn_home / "state" / "orchestrator.json"
 
     async def initialize(self) -> None:
@@ -88,9 +90,60 @@ class CairnOrchestrator:
             enable_polling=self.config.enable_signal_polling,
         )
         self.materializer = WorkspaceMaterializer(self.cairn_home, stable_fs=self.stable)
+        self.lifecycle = LifecycleStore(self.bin)
+
+        await self.recover_from_lifecycle_store()
+
         if self._worker_task is None or self._worker_task.done():
             self._worker_task = asyncio.create_task(self._worker_loop())
         await self.persist_state()
+
+    async def recover_from_lifecycle_store(self) -> None:
+        """Rebuild active_agents from lifecycle store on restart.
+
+        This is the single recovery path that ensures consistency after
+        orchestrator restarts.
+        """
+        if self.lifecycle is None:
+            return
+
+        active_records = await self.lifecycle.list_active()
+
+        for record in active_records:
+            agent_id = record.agent_id
+            db_path = Path(record.db_path)
+
+            if not db_path.exists():
+                record.state = AgentState.ERRORED.value
+                record.error = "Agent DB missing after restart"
+                record.state_changed_at = time.time()
+                await self.lifecycle.save(record)
+                continue
+
+            try:
+                agent_fs = await AgentFS.open(AgentFSOptions(path=str(db_path)).model_dump())
+            except Exception as exc:
+                record.state = AgentState.ERRORED.value
+                record.error = f"Failed to open agent DB: {exc}"
+                record.state_changed_at = time.time()
+                await self.lifecycle.save(record)
+                continue
+
+            ctx = AgentContext(
+                agent_id=agent_id,
+                task=record.task,
+                priority=TaskPriority(record.priority),
+                state=AgentState(record.state),
+                agent_fs=agent_fs,
+                created_at=record.created_at,
+                state_changed_at=record.state_changed_at,
+                submission=record.submission,
+                error=record.error,
+            )
+            self.active_agents[agent_id] = ctx
+
+            if ctx.state == AgentState.QUEUED:
+                await self.queue.enqueue(agent_id, ctx.priority)
 
     async def run(self) -> None:
         """Run orchestrator service loops."""
@@ -146,31 +199,60 @@ class CairnOrchestrator:
         if command.agent_id is None:
             raise ValueError("status commands require agent_id")
 
-        ctx = self._get_agent(command.agent_id)
+        ctx = self.active_agents.get(command.agent_id)
+        if ctx:
+            return CommandResult(
+                command_type=command.type,
+                agent_id=ctx.agent_id,
+                payload={
+                    "state": ctx.state.value,
+                    "task": ctx.task,
+                    "error": ctx.error,
+                    "submission": ctx.submission,
+                },
+            )
+
+        if self.lifecycle is None:
+            raise KeyError(f"Unknown agent_id: {command.agent_id}")
+
+        record = await self.lifecycle.load(command.agent_id)
+        if record is None:
+            raise KeyError(f"Unknown agent_id: {command.agent_id}")
+
         return CommandResult(
             command_type=command.type,
-            agent_id=ctx.agent_id,
+            agent_id=record.agent_id,
             payload={
-                "state": ctx.state.value,
-                "task": ctx.task,
-                "error": ctx.error,
-                "submission": ctx.submission,
+                "state": record.state,
+                "task": record.task,
+                "error": record.error,
+                "submission": record.submission,
             },
         )
 
     async def _handle_list_agents(self, command: CairnCommand) -> CommandResult:
+        agents_dict = {}
+
+        for agent_id, ctx in self.active_agents.items():
+            agents_dict[agent_id] = {
+                "state": ctx.state.value,
+                "task": ctx.task,
+                "priority": int(ctx.priority),
+            }
+
+        if self.lifecycle is not None:
+            all_records = await self.lifecycle.list_all()
+            for record in all_records:
+                if record.agent_id not in agents_dict:
+                    agents_dict[record.agent_id] = {
+                        "state": record.state,
+                        "task": record.task,
+                        "priority": record.priority,
+                    }
+
         return CommandResult(
             command_type=command.type,
-            payload={
-                "agents": {
-                    agent_id: {
-                        "state": ctx.state.value,
-                        "task": ctx.task,
-                        "priority": int(ctx.priority),
-                    }
-                    for agent_id, ctx in self.active_agents.items()
-                }
-            },
+            payload={"agents": agents_dict},
         )
 
     async def spawn_agent(
@@ -179,7 +261,7 @@ class CairnOrchestrator:
         priority: TaskPriority = TaskPriority.NORMAL,
     ) -> str:
         """Spawn and enqueue a new agent task."""
-        if self.stable is None:
+        if self.stable is None or self.lifecycle is None:
             raise RuntimeError("Orchestrator not initialized")
 
         agent_id = f"agent-{uuid.uuid4().hex[:8]}"
@@ -195,6 +277,7 @@ class CairnOrchestrator:
         )
         self.active_agents[agent_id] = ctx
 
+        await self._save_lifecycle_record(ctx)
         await self.queue.enqueue(agent_id, priority)
         await self.persist_state()
         return agent_id
@@ -203,6 +286,7 @@ class CairnOrchestrator:
         """Accept agent changes and merge overlay content into stable."""
         ctx = self._get_agent(agent_id)
         ctx.transition(AgentState.ACCEPTED)
+        await self._save_lifecycle_record(ctx)
 
         if self.stable is None:
             raise RuntimeError("Stable AgentFS not initialized")
@@ -215,34 +299,44 @@ class CairnOrchestrator:
         """Reject agent changes and cleanup overlay."""
         ctx = self._get_agent(agent_id)
         ctx.transition(AgentState.REJECTED)
+        await self._save_lifecycle_record(ctx)
         await self.trash_agent(agent_id)
         await self.persist_state()
 
     async def trash_agent(self, agent_id: str) -> None:
-        """Move agent to bin metadata and cleanup runtime artifacts."""
-        ctx = self._get_agent(agent_id)
-        if self.bin is not None:
-            await self.bin.kv.set(
-                f"agent:{agent_id}",
-                json.dumps(
-                    {
-                        "agent_id": agent_id,
-                        "task": ctx.task,
-                        "final_state": ctx.state.value,
-                        "trashed_at": time.time(),
-                    }
-                ),
-            )
+        """Move agent to bin and cleanup runtime artifacts.
 
-        if self.materializer is not None:
-            await self.materializer.cleanup(agent_id)
+        This method is linear and idempotent - it can be called multiple
+        times safely and will only perform necessary cleanup.
+        """
+        ctx = self.active_agents.get(agent_id)
+        if ctx is None:
+            return
 
         await ctx.agent_fs.close()
 
         agent_db = self.agentfs_dir / f"{agent_id}.db"
-        if agent_db.exists():
-            bin_copy = self.agentfs_dir / f"bin-{agent_id}.db"
-            shutil.move(agent_db, bin_copy)
+        bin_db = self.agentfs_dir / f"bin-{agent_id}.db"
+
+        if agent_db.exists() and not bin_db.exists():
+            shutil.move(agent_db, bin_db)
+
+        if self.lifecycle is not None:
+            record = LifecycleRecord(
+                agent_id=ctx.agent_id,
+                task=ctx.task,
+                priority=int(ctx.priority),
+                state=ctx.state.value,
+                created_at=ctx.created_at,
+                state_changed_at=ctx.state_changed_at,
+                db_path=str(bin_db),
+                submission=ctx.submission,
+                error=ctx.error,
+            )
+            await self.lifecycle.save(record)
+
+        if self.materializer is not None:
+            await self.materializer.cleanup(agent_id)
 
         self.active_agents.pop(agent_id, None)
         await self.persist_state()
@@ -267,6 +361,7 @@ class CairnOrchestrator:
 
             async def transition(new_state: AgentState) -> None:
                 ctx.transition(new_state)
+                await self._save_lifecycle_record(ctx)
                 await self.persist_state()
 
             await transition(AgentState.SPAWNING)
@@ -305,7 +400,11 @@ class CairnOrchestrator:
             await self.persist_state()
 
     async def persist_state(self) -> None:
-        """Persist a JSON snapshot used by CLI consumers."""
+        """Persist queue stats snapshot for CLI consumers.
+
+        Agent metadata is now stored in the lifecycle store (bin.db KV),
+        so this only writes queue statistics.
+        """
         state_dir = self.state_file.parent
         state_dir.mkdir(parents=True, exist_ok=True)
 
@@ -326,21 +425,46 @@ class CairnOrchestrator:
                     }
                 ),
             },
-            "agents": {
-                agent_id: {
-                    "agent_id": ctx.agent_id,
-                    "task": ctx.task,
-                    "priority": int(ctx.priority),
-                    "state": ctx.state.value,
-                    "created_at": ctx.created_at,
-                    "state_changed_at": ctx.state_changed_at,
-                    "submission": ctx.submission,
-                    "error": ctx.error,
-                }
-                for agent_id, ctx in self.active_agents.items()
-            },
         }
         self.state_file.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
+    async def cleanup_completed_agents(self, max_age_seconds: float = 86400 * 7) -> int:
+        """Remove lifecycle records and DBs for old completed agents.
+
+        This is the single retention policy location for the system.
+
+        Args:
+            max_age_seconds: Maximum age in seconds for completed agents (default: 7 days)
+
+        Returns:
+            Number of agents cleaned up
+        """
+        if self.lifecycle is None:
+            return 0
+
+        return await self.lifecycle.cleanup_old(max_age_seconds, self.agentfs_dir)
+
+    async def _save_lifecycle_record(self, ctx: AgentContext) -> None:
+        """Save agent context to canonical lifecycle store."""
+        if self.lifecycle is None:
+            return
+
+        db_path = self.agentfs_dir / f"{ctx.agent_id}.db"
+        if not db_path.exists():
+            db_path = self.agentfs_dir / f"bin-{ctx.agent_id}.db"
+
+        record = LifecycleRecord(
+            agent_id=ctx.agent_id,
+            task=ctx.task,
+            priority=int(ctx.priority),
+            state=ctx.state.value,
+            created_at=ctx.created_at,
+            state_changed_at=ctx.state_changed_at,
+            db_path=str(db_path),
+            submission=ctx.submission,
+            error=ctx.error,
+        )
+        await self.lifecycle.save(record)
 
     def _get_agent(self, agent_id: str) -> AgentContext:
         ctx = self.active_agents.get(agent_id)

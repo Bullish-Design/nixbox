@@ -1,6 +1,6 @@
 # Cairn Technical Specification
 
-Version: 1.1
+Version: 1.2
 Status: Active
 Updated: 2026-02-13
 
@@ -86,7 +86,37 @@ Disallowed:
 
 ### Agent lifecycle
 
-`QUEUED -> RUNNING -> REVIEWING -> (ACCEPTED | REJECTED | FAILED)`
+`QUEUED -> SPAWNING -> GENERATING -> EXECUTING -> SUBMITTING -> REVIEWING -> (ACCEPTED | REJECTED | ERRORED)`
+
+### Lifecycle metadata storage
+
+Agent lifecycle metadata is stored in a **single canonical location**: the `bin.db` AgentFS KV namespace. This provides:
+
+- Single source of truth for all agent state (active and completed)
+- Clear recovery path on orchestrator restart
+- Linear, idempotent cleanup operations
+- No duplicate writes across multiple storage layers
+
+**KV Schema:**
+```
+agent:{agent_id} -> {
+  agent_id: str,
+  task: str,
+  priority: int,
+  state: str,  # AgentState enum value
+  created_at: float,
+  state_changed_at: float,
+  db_path: str,  # Path to agent-*.db or bin-{agent_id}.db
+  submission: dict | null,
+  error: str | null
+}
+```
+
+**Lifecycle operations:**
+- All state transitions write to `bin.db` KV store via `LifecycleStore.save()`
+- Recovery rebuilds `active_agents` from KV store on startup
+- Cleanup is idempotent: `trash_agent()` can be called multiple times safely
+- Retention policy removes old completed agents from single location
 
 ### Responsibilities
 
@@ -98,7 +128,8 @@ Disallowed:
 - release the semaphore slot in one completion `finally` path,
 - generate/execute agent code,
 - materialize preview workspace,
-- persist state snapshot under `$CAIRN_HOME/state/` with queue `pending` and `running` counts.
+- persist lifecycle metadata to canonical KV store on every state transition,
+- persist queue stats snapshot under `$CAIRN_HOME/state/` (stats only, not agent metadata).
 
 ### CLI contract (current)
 
