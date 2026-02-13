@@ -109,6 +109,7 @@ in
   ];
 
   env = {
+    PROJECT_NAME = "nixbox";
     # Default can be overridden by your shell env (AGENTFS_ENABLED=0) or by devenv config.
     AGENTFS_ENABLED = lib.mkDefault (envOrDefault "AGENTFS_ENABLED" "1");
 
