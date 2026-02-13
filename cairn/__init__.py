@@ -1,20 +1,32 @@
-"""Cairn: Execution Layer for Nixbox.
+"""Cairn: Execution and orchestration layer for Nixbox."""
 
-This package implements the execution layer where agent code runs safely
-in a Monty sandbox with controlled access to filesystem and LLM operations.
-"""
-
+from cairn.agent import AgentContext, AgentState
 from cairn.code_generator import CodeGenerator
 from cairn.executor import AgentExecutor, ExecutionResult
 from cairn.external_functions import ExternalFunctions, create_external_functions
+from cairn.orchestrator import CairnOrchestrator, OrchestratorConfig
+from cairn.queue import QueuedTask, TaskPriority, TaskQueue
 from cairn.retry import RetryStrategy
+from cairn.signals import SignalHandler
+from cairn.watcher import FileWatcher
+from cairn.workspace import WorkspaceMaterializer
 
 __all__ = [
+    "AgentContext",
     "AgentExecutor",
+    "AgentState",
+    "CairnOrchestrator",
     "CodeGenerator",
     "ExecutionResult",
     "ExternalFunctions",
+    "FileWatcher",
+    "OrchestratorConfig",
+    "QueuedTask",
     "RetryStrategy",
+    "SignalHandler",
+    "TaskPriority",
+    "TaskQueue",
+    "WorkspaceMaterializer",
     "create_external_functions",
 ]
 
