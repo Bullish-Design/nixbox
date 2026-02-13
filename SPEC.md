@@ -19,7 +19,7 @@ Cairn has three layers:
 
 1. **Storage**: AgentFS overlays backed by SQLite (`stable.db`, `agent-*.db`, `bin.db`).
 2. **Execution**: Monty sandbox that runs generated agent code with explicit external functions.
-3. **Orchestration**: Python process that manages queueing, execution, review state, and accept/reject.
+3. **Orchestration**: Python process with one worker loop that schedules queueing, execution, review state, and accept/reject.
 
 ## Data layout contract
 
@@ -91,10 +91,12 @@ Disallowed:
 ### Responsibilities
 
 - monitor signals (`spawn/queue/accept/reject`),
-- create per-agent overlays,
+- enqueue per-agent overlays into a priority queue,
+- run a long-lived worker loop that acquires an `asyncio.Semaphore(max_concurrent_agents)` slot before starting each agent,
+- release the semaphore slot in one completion `finally` path,
 - generate/execute agent code,
 - materialize preview workspace,
-- persist state snapshot under `$CAIRN_HOME/state/`.
+- persist state snapshot under `$CAIRN_HOME/state/` with queue `pending` and `running` counts.
 
 ### CLI contract (current)
 

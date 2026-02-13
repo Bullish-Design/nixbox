@@ -1,6 +1,8 @@
-"""Stage 3 unit tests for queue priority and concurrency behavior."""
+"""Unit tests for queue priority behavior."""
 
 from __future__ import annotations
+
+import asyncio
 
 import pytest
 
@@ -25,35 +27,19 @@ async def test_queue_dequeues_by_priority_order() -> None:
 
 
 @pytest.mark.asyncio
-async def test_queue_respects_max_concurrency_gate() -> None:
-    queue = TaskQueue(max_concurrent=1)
+async def test_queue_dequeue_returns_none_when_empty() -> None:
+    queue = TaskQueue()
 
-    await queue.enqueue("task-1")
-    await queue.enqueue("task-2")
-
-    assert await queue.dequeue() is not None
     assert await queue.dequeue() is None
-
-    queue.mark_complete()
-
-    next_task = await queue.dequeue()
-    assert next_task is not None
-    assert next_task.task == "task-2"
 
 
 @pytest.mark.asyncio
-async def test_queue_completion_bookkeeping() -> None:
-    queue = TaskQueue(max_concurrent=2)
+async def test_dequeue_wait_blocks_until_task_available() -> None:
+    queue = TaskQueue()
 
+    waiter = asyncio.create_task(queue.dequeue_wait())
+    await asyncio.sleep(0.02)
     await queue.enqueue("task-1")
-    await queue.enqueue("task-2")
 
-    assert await queue.dequeue() is not None
-    assert await queue.dequeue() is not None
-    assert queue.active_count == 2
-
-    queue.mark_complete()
-    queue.mark_complete()
-
-    assert queue.active_count == 0
-    assert queue.completed_count == 2
+    dequeued = await waiter
+    assert dequeued.task == "task-1"
