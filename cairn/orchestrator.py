@@ -61,6 +61,7 @@ class CairnOrchestrator:
         self.watcher: FileWatcher | None = None
         self.signals: SignalHandler | None = None
         self.materializer: WorkspaceMaterializer | None = None
+        self.state_file = self.cairn_home / "state" / "orchestrator.json"
 
     async def initialize(self) -> None:
         """Initialize orchestrator directories and AgentFS instances."""
@@ -78,6 +79,7 @@ class CairnOrchestrator:
         self.watcher = FileWatcher(self.project_root, self.stable)
         self.signals = SignalHandler(self.cairn_home, self)
         self.materializer = WorkspaceMaterializer(self.cairn_home, stable_fs=self.stable)
+        await self.persist_state()
 
     async def run(self) -> None:
         """Run orchestrator service loops."""
@@ -116,6 +118,7 @@ class CairnOrchestrator:
         self.active_agents[agent_id] = ctx
 
         await self.queue.enqueue(agent_id, priority)
+        await self.persist_state()
         await self._maybe_start_agents()
         return agent_id
 
@@ -129,12 +132,14 @@ class CairnOrchestrator:
 
         await self._merge_overlay_to_stable(ctx.agent_fs, self.stable)
         await self.trash_agent(agent_id)
+        await self.persist_state()
 
     async def reject_agent(self, agent_id: str) -> None:
         """Reject agent changes and cleanup overlay."""
         ctx = self._get_agent(agent_id)
         ctx.transition(AgentState.REJECTED)
         await self.trash_agent(agent_id)
+        await self.persist_state()
 
     async def trash_agent(self, agent_id: str) -> None:
         """Move agent to bin metadata and cleanup runtime artifacts."""
@@ -163,6 +168,7 @@ class CairnOrchestrator:
             shutil.move(agent_db, bin_copy)
 
         self.active_agents.pop(agent_id, None)
+        await self.persist_state()
 
     async def auto_spawn_loop(self) -> None:
         """Continuously schedule queued tasks while concurrency slots are available."""
@@ -181,6 +187,7 @@ class CairnOrchestrator:
             ctx = self.active_agents.get(agent_id)
             if ctx is None:
                 self.queue.mark_complete()
+                await self.persist_state()
                 continue
 
             asyncio.create_task(self._run_agent(agent_id))
@@ -188,9 +195,14 @@ class CairnOrchestrator:
     async def _run_agent(self, agent_id: str) -> None:
         """Run one agent through generation/execution/submission lifecycle."""
         ctx = self._get_agent(agent_id)
+
+        async def transition(new_state: AgentState) -> None:
+            ctx.transition(new_state)
+            await self.persist_state()
+
         try:
-            ctx.transition(AgentState.SPAWNING)
-            ctx.transition(AgentState.GENERATING)
+            await transition(AgentState.SPAWNING)
+            await transition(AgentState.GENERATING)
             generated = await self.llm.generate(ctx.task)
             ctx.generated_code = generated
 
@@ -201,14 +213,14 @@ class CairnOrchestrator:
             if self.stable is None:
                 raise RuntimeError("Stable AgentFS not initialized")
 
-            ctx.transition(AgentState.EXECUTING)
+            await transition(AgentState.EXECUTING)
             functions = self.external_functions_factory(agent_id, ctx.agent_fs, self.stable, self.llm)
             execution_result = await self.executor.execute(generated, functions, agent_id)
             ctx.execution_result = execution_result
             if execution_result.failed:
                 raise RuntimeError(execution_result.error or "execution failed")
 
-            ctx.transition(AgentState.SUBMITTING)
+            await transition(AgentState.SUBMITTING)
             submission_raw = await ctx.agent_fs.kv.get("submission")
             if submission_raw:
                 ctx.submission = json.loads(submission_raw)
@@ -216,12 +228,42 @@ class CairnOrchestrator:
             if self.materializer is not None:
                 await self.materializer.materialize(agent_id, ctx.agent_fs)
 
-            ctx.transition(AgentState.REVIEWING)
+            await transition(AgentState.REVIEWING)
         except Exception as exc:
             ctx.error = str(exc)
-            ctx.transition(AgentState.ERRORED)
+            await transition(AgentState.ERRORED)
         finally:
             self.queue.mark_complete()
+            await self.persist_state()
+
+    async def persist_state(self) -> None:
+        """Persist a JSON snapshot used by CLI consumers."""
+        state_dir = self.state_file.parent
+        state_dir.mkdir(parents=True, exist_ok=True)
+
+        payload = {
+            "project_root": str(self.project_root),
+            "updated_at": time.time(),
+            "queue": {
+                "pending": self.queue.size(),
+                "active": self.queue.active_count,
+                "completed": self.queue.completed_count,
+            },
+            "agents": {
+                agent_id: {
+                    "agent_id": ctx.agent_id,
+                    "task": ctx.task,
+                    "priority": int(ctx.priority),
+                    "state": ctx.state.value,
+                    "created_at": ctx.created_at,
+                    "state_changed_at": ctx.state_changed_at,
+                    "submission": ctx.submission,
+                    "error": ctx.error,
+                }
+                for agent_id, ctx in self.active_agents.items()
+            },
+        }
+        self.state_file.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
 
     def _get_agent(self, agent_id: str) -> AgentContext:
         ctx = self.active_agents.get(agent_id)

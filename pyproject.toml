@@ -14,6 +14,10 @@ dependencies = [
     "watchfiles>=0.20.0",
 ]
 
+
+[project.scripts]
+cairn = "cairn.cli:main"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0.0",
