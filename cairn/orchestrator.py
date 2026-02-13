@@ -30,6 +30,7 @@ class OrchestratorConfig:
     """Runtime configuration for orchestrator services."""
 
     max_concurrent_agents: int = 5
+    enable_signal_polling: bool = True
 
 
 class CairnOrchestrator:
@@ -81,7 +82,11 @@ class CairnOrchestrator:
         )
 
         self.watcher = FileWatcher(self.project_root, self.stable)
-        self.signals = SignalHandler(self.cairn_home, self)
+        self.signals = SignalHandler(
+            self.cairn_home,
+            self,
+            enable_polling=self.config.enable_signal_polling,
+        )
         self.materializer = WorkspaceMaterializer(self.cairn_home, stable_fs=self.stable)
         if self._worker_task is None or self._worker_task.done():
             self._worker_task = asyncio.create_task(self._worker_loop())

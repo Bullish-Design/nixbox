@@ -66,6 +66,22 @@ async def test_initialize_creates_directories(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_initialize_passes_signal_polling_config(tmp_path: Path) -> None:
+    orch = CairnOrchestrator(
+        project_root=tmp_path,
+        cairn_home=tmp_path / ".cairn",
+        config=OrchestratorConfig(enable_signal_polling=False),
+        code_generator=FakeCodeGenerator(),
+        executor=FakeExecutor(),
+    )
+
+    await orch.initialize()
+
+    assert orch.signals is not None
+    assert orch.signals.enable_polling is False
+
+
+@pytest.mark.asyncio
 async def test_spawn_agent_creates_overlay_and_tracks_active_agent(tmp_path: Path) -> None:
     orch = CairnOrchestrator(
         project_root=tmp_path,

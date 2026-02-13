@@ -77,3 +77,37 @@ async def test_queue_signal_uses_default_priority_when_omitted(tmp_path: Path) -
     await _run_watcher_once(handler)
 
     assert orch.commands == [(CommandType.QUEUE, None, "Backlog task", TaskPriority.NORMAL)]
+
+
+@pytest.mark.asyncio
+async def test_signal_file_with_type_payload_dispatches_independent_of_filename(tmp_path: Path) -> None:
+    orch = StubOrchestrator()
+    handler = SignalHandler(tmp_path, orch)
+    signals_dir = tmp_path / "signals"
+    signals_dir.mkdir(parents=True, exist_ok=True)
+    (signals_dir / "custom-command.json").write_text(
+        json.dumps({"type": "queue", "task": "Typed queue"}),
+        encoding="utf-8",
+    )
+
+    await handler.process_signals_once()
+
+    assert orch.commands == [(CommandType.QUEUE, None, "Typed queue", TaskPriority.NORMAL)]
+    assert not (signals_dir / "custom-command.json").exists()
+
+
+@pytest.mark.asyncio
+async def test_polling_can_be_disabled_without_changing_command_parsing(tmp_path: Path) -> None:
+    orch = StubOrchestrator()
+    handler = SignalHandler(tmp_path, orch, enable_polling=False)
+    signals_dir = tmp_path / "signals"
+    signals_dir.mkdir(parents=True, exist_ok=True)
+    (signals_dir / "spawn-compat.json").write_text(json.dumps({"task": "manual process"}), encoding="utf-8")
+
+    await handler.watch()
+    assert orch.commands == []
+    assert (signals_dir / "spawn-compat.json").exists()
+
+    await handler.process_signals_once()
+    assert orch.commands == [(CommandType.QUEUE, None, "manual process", TaskPriority.HIGH)]
+    assert not (signals_dir / "spawn-compat.json").exists()
