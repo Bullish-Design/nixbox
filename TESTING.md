@@ -187,3 +187,20 @@ Expected outcomes:
 - All unit and integration tests pass locally with no skips.
 - The optional e2e smoke test passes and confirms spawn → reviewing → accept/reject flow.
 - If a local environment is slow, `test_orchestrator.py` may take slightly longer due to async lifecycle polling.
+
+## Cairn Stage 4 Neovim Plugin Tests
+
+Run these commands from the repository root to validate Stage 4 Neovim contracts (commands, config/keymaps, tmux behavior, ghost text, and watcher parsing).
+
+```bash
+# Requires plenary.nvim available on runtimepath (set PLENARY_PATH to your checkout)
+PLENARY_PATH=/path/to/plenary.nvim \
+  nvim --headless -u cairn/nvim/tests/minimal_init.lua \
+  -c "set rtp+=$PLENARY_PATH" \
+  -c "PlenaryBustedDirectory cairn/nvim/tests { minimal_init = 'cairn/nvim/tests/minimal_init.lua' }" \
+  -c "qa"
+```
+
+Expected outcome:
+- All specs under `cairn/nvim/tests/` pass.
+- This validates Stage 4 exit-criteria contracts in `.roadmap/ROADMAP-STEP_4.md`.
