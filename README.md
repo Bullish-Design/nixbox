@@ -317,6 +317,20 @@ Not yet implemented in Stage 3:
 - `cairn-init`
 - Neovim/TMUX UI commands (`:CairnQueue`, ghost text workflow) are Stage 4 scope.
 
+### Stage 4 Neovim Test Invocation
+
+Run the Neovim plugin contract tests headlessly with Plenary/busted:
+
+```bash
+PLENARY_PATH=/path/to/plenary.nvim \
+  nvim --headless -u cairn/nvim/tests/minimal_init.lua \
+  -c "set rtp+=$PLENARY_PATH" \
+  -c "PlenaryBustedDirectory cairn/nvim/tests { minimal_init = 'cairn/nvim/tests/minimal_init.lua' }" \
+  -c "qa"
+```
+
+This validates Stage 4 UI contracts (command wiring, config/keymaps, tmux preview behavior, ghost extmarks, and watcher parsing/REVIEWING detection).
+
 ### Queue Agent Tasks
 
 ```vim
