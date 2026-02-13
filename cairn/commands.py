@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Mapping
+from typing import Annotated, Any, Literal, Mapping, TypeAlias
+
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, model_validator
 
 from cairn.queue import TaskPriority
 
@@ -19,36 +21,61 @@ class CommandType(str, Enum):
     LIST_AGENTS = "list_agents"
 
 
-@dataclass(slots=True)
-class CairnCommand:
-    """Normalized command object used across CLI and signal processing."""
+class _BaseCommandModel(BaseModel):
+    """Base command model used across CLI and signal processing."""
 
-    type: CommandType
-    agent_id: str | None = None
-    task: str | None = None
-    priority: TaskPriority | None = None
-    metadata: dict[str, Any] = field(default_factory=dict)
+    model_config = ConfigDict(extra="ignore")
 
-    def __post_init__(self) -> None:
-        if self.type is CommandType.QUEUE and not self.task:
-            raise ValueError("queue commands require task")
-
-        if self.type in {CommandType.ACCEPT, CommandType.REJECT, CommandType.STATUS} and not self.agent_id:
-            raise ValueError(f"{self.type.value} commands require agent_id")
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     def to_payload(self) -> dict[str, Any]:
-        payload: dict[str, Any] = {"type": self.type.value}
+        return self.model_dump(exclude_none=True)
 
-        if self.agent_id is not None:
-            payload["agent_id"] = self.agent_id
-        if self.task is not None:
-            payload["task"] = self.task
-        if self.priority is not None:
-            payload["priority"] = int(self.priority)
-        if self.metadata:
-            payload["metadata"] = self.metadata
 
-        return payload
+class QueueCommand(_BaseCommandModel):
+    type: Literal[CommandType.QUEUE] = CommandType.QUEUE
+    task: str = Field(min_length=1)
+    priority: TaskPriority
+    spawn_alias: bool = Field(default=False, exclude=True, repr=False)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _default_priority(cls, data: Any) -> Any:
+        if not isinstance(data, Mapping):
+            return data
+
+        parsed = dict(data)
+        if parsed.get("priority") is None:
+            parsed["priority"] = TaskPriority.HIGH if parsed.get("spawn_alias") else TaskPriority.NORMAL
+        return parsed
+
+
+class AcceptCommand(_BaseCommandModel):
+    type: Literal[CommandType.ACCEPT] = CommandType.ACCEPT
+    agent_id: str = Field(min_length=1)
+
+
+class RejectCommand(_BaseCommandModel):
+    type: Literal[CommandType.REJECT] = CommandType.REJECT
+    agent_id: str = Field(min_length=1)
+
+
+class StatusCommand(_BaseCommandModel):
+    type: Literal[CommandType.STATUS] = CommandType.STATUS
+    agent_id: str = Field(min_length=1)
+
+
+class ListAgentsCommand(_BaseCommandModel):
+    type: Literal[CommandType.LIST_AGENTS] = CommandType.LIST_AGENTS
+
+
+CommandEnvelope: TypeAlias = Annotated[
+    QueueCommand | AcceptCommand | RejectCommand | StatusCommand | ListAgentsCommand,
+    Field(discriminator="type"),
+]
+
+CairnCommand = CommandEnvelope
+_COMMAND_ENVELOPE_ADAPTER = TypeAdapter(CommandEnvelope)
 
 
 @dataclass(slots=True)
@@ -78,29 +105,21 @@ def _parse_command_type(command_type: CommandType | str) -> tuple[CommandType, b
 def parse_command_payload(
     command_type: CommandType | str,
     payload: Mapping[str, Any] | None = None,
-) -> CairnCommand:
+) -> CommandEnvelope:
     """Parse/validate incoming command data and normalize command defaults."""
 
     data = dict(payload or {})
     command, is_spawn_alias = _parse_command_type(command_type)
+    data["type"] = command
 
-    agent_id = data.get("agent_id")
-    task = data.get("task")
+    if command is CommandType.QUEUE and is_spawn_alias:
+        data["spawn_alias"] = True
 
     metadata_raw = data.get("metadata")
-    metadata = dict(metadata_raw) if isinstance(metadata_raw, Mapping) else {}
+    if not isinstance(metadata_raw, Mapping):
+        data["metadata"] = {}
 
-    if command is CommandType.QUEUE:
-        default_priority = TaskPriority.HIGH if is_spawn_alias else TaskPriority.NORMAL
-        raw_priority = data.get("priority", int(default_priority))
-        priority = TaskPriority(int(raw_priority))
-    else:
-        priority = None
-
-    return CairnCommand(
-        type=command,
-        agent_id=agent_id,
-        task=task,
-        priority=priority,
-        metadata=metadata,
-    )
+    try:
+        return _COMMAND_ENVELOPE_ADAPTER.validate_python(data)
+    except ValidationError as exc:
+        raise ValueError(str(exc)) from exc
