@@ -162,6 +162,47 @@ INFO
     exec link-abs-to-repo agentfs
   '';
 
+  # Test runner scripts
+  scripts.test.exec = ''
+    cd "${root}"
+    exec uv run --all-extras pytest "$@"
+  '';
+
+  scripts.test-unit.exec = ''
+    cd "${root}"
+    exec uv run --all-extras pytest agentfs-pydantic/tests/test_models.py "$@"
+  '';
+
+  scripts.test-integration.exec = ''
+    cd "${root}"
+    exec uv run --all-extras pytest agentfs-pydantic/tests/test_integration.py "$@"
+  '';
+
+  scripts.test-performance.exec = ''
+    cd "${root}"
+    exec uv run --all-extras pytest -m benchmark agentfs-pydantic/tests/test_performance.py "$@"
+  '';
+
+  scripts.test-property.exec = ''
+    cd "${root}"
+    exec uv run --all-extras pytest agentfs-pydantic/tests/test_property_based.py "$@"
+  '';
+
+  scripts.test-cov.exec = ''
+    cd "${root}"
+    exec uv run --all-extras pytest \
+      --cov=agentfs-pydantic/src/agentfs_pydantic \
+      --cov-report=term-missing \
+      --cov-report=html \
+      --cov-branch \
+      agentfs-pydantic/tests/ "$@"
+  '';
+
+  scripts.test-fast.exec = ''
+    cd "${root}"
+    exec uv run --all-extras pytest -m "not slow and not benchmark" "$@"
+  '';
+
   enterShell = ''
     echo
     echo --------------------------------------------------------
@@ -173,7 +214,16 @@ INFO
     echo "   agentfs-url    # print the base URL"
     echo "   agentfs-cli    # run the upstream agentfs CLI"
     echo "   agentfs        # run AgentFS in the foreground"
-    echo "   devenv up       # run background processes (includes agentfs)"
+    echo "   devenv up      # run background processes (includes agentfs)"
+    echo
+    echo " Test commands:"
+    echo "   test           # run all tests"
+    echo "   test-unit      # run unit tests only"
+    echo "   test-integration # run integration tests"
+    echo "   test-performance # run performance benchmarks"
+    echo "   test-property  # run property-based tests"
+    echo "   test-cov       # run tests with coverage report"
+    echo "   test-fast      # run fast tests (skip slow & benchmarks)"
     echo
     echo --------------------------------------------------------
     echo
