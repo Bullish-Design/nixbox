@@ -175,3 +175,48 @@ def test_model_serialization():
     # Test deserialization
     restored = AgentFSOptions.model_validate_json(json_data)
     assert restored.id == "test-agent"
+
+
+def test_view_query_rejects_negative_min_size():
+    """Test ViewQuery rejects negative min_size."""
+    with pytest.raises(ValueError, match="greater than or equal to 0"):
+        ViewQuery(min_size=-1)
+
+
+def test_view_query_rejects_negative_max_size():
+    """Test ViewQuery rejects negative max_size."""
+    with pytest.raises(ValueError, match="greater than or equal to 0"):
+        ViewQuery(max_size=-1)
+
+
+def test_view_query_rejects_min_size_greater_than_max_size():
+    """Test ViewQuery rejects invalid size ranges."""
+    with pytest.raises(ValueError, match="min_size must be less than or equal to max_size"):
+        ViewQuery(min_size=100, max_size=10)
+
+
+def test_view_query_pattern_matching_corner_cases():
+    """Test ViewQuery pattern matching across basename and recursive patterns."""
+    query = ViewQuery(path_pattern="*.py")
+
+    assert query.matches_path("/main.py") is True
+    assert query.matches_path("/src/main.py") is True
+    assert query.matches_path("/src/main.txt") is False
+
+    rooted_query = ViewQuery(path_pattern="/data/*.json")
+    assert rooted_query.matches_path("/data/a.json") is True
+    assert rooted_query.matches_path("/data/sub/a.json") is False
+
+    recursive_query = ViewQuery(path_pattern="/data/**/*.json")
+    assert recursive_query.matches_path("/data/sub/a.json") is True
+    assert recursive_query.matches_path("/data/a.json") is True
+
+
+def test_view_query_regex_matcher_optional_and_compiled():
+    """Test regex matcher behavior with and without regex_pattern."""
+    no_regex = ViewQuery()
+    assert no_regex.matches_regex("/anything") is True
+
+    regex = ViewQuery(regex_pattern=r"\.py$")
+    assert regex.matches_regex("/src/main.py") is True
+    assert regex.matches_regex("/src/main.txt") is False
