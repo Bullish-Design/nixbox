@@ -11,7 +11,7 @@ import pytest
 from agentfs_sdk import AgentFS, AgentFSOptions as SDKAgentFSOptions
 from hypothesis import given, strategies as st
 
-from agentfs_pydantic import AgentFSOptions
+from agentfs_pydantic import AgentFSOptions, ViewQuery
 
 
 class TestAgentFSOptionsProperties:
@@ -363,3 +363,56 @@ class TestFileSystemProperties:
 
             finally:
                 await agent._db.close()
+
+
+class TestViewQueryProperties:
+    """Property-based tests for ViewQuery validation and pattern behavior."""
+
+    @given(
+        min_size=st.integers(min_value=0, max_value=10_000),
+        max_size=st.integers(min_value=0, max_value=10_000),
+    )
+    def test_size_bounds_ordering(self, min_size, max_size):
+        """min_size > max_size should fail; other combinations should pass."""
+        if min_size > max_size:
+            with pytest.raises(ValueError, match="min_size must be less than or equal to max_size"):
+                ViewQuery(min_size=min_size, max_size=max_size)
+        else:
+            query = ViewQuery(min_size=min_size, max_size=max_size)
+            assert query.min_size == min_size
+            assert query.max_size == max_size
+
+    @given(size=st.integers(max_value=-1))
+    def test_negative_size_constraints_rejected(self, size):
+        """Negative sizes should be rejected by field constraints."""
+        with pytest.raises(ValueError):
+            ViewQuery(min_size=size)
+
+        with pytest.raises(ValueError):
+            ViewQuery(max_size=size)
+
+    @given(
+        extension=st.text(
+            alphabet=st.characters(whitelist_categories=("Lu", "Ll", "Nd")),
+            min_size=1,
+            max_size=6,
+        ),
+        filename=st.text(
+            alphabet=st.characters(whitelist_categories=("Lu", "Ll", "Nd")),
+            min_size=1,
+            max_size=12,
+        ),
+        folder=st.text(
+            alphabet=st.characters(whitelist_categories=("Lu", "Ll", "Nd")),
+            min_size=1,
+            max_size=12,
+        ),
+    )
+    def test_basename_glob_matches_nested_paths(self, extension, filename, folder):
+        """A basename-only glob should match nested paths after normalization."""
+        query = ViewQuery(path_pattern=f"*.{extension}")
+        nested_path = f"/{folder}/{filename}.{extension}"
+        non_matching_path = f"/{folder}/{filename}.other"
+
+        assert query.matches_path(nested_path) is True
+        assert query.matches_path(non_matching_path) is False

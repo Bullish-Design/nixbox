@@ -1,11 +1,10 @@
 """View interface for querying AgentFS filesystem."""
 
-import fnmatch
 import re
 from typing import Callable, Optional
 
 from agentfs_sdk import AgentFS
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr, model_validator
 
 from .models import FileEntry, FileStats
 
@@ -43,12 +42,81 @@ class ViewQuery(BaseModel):
     )
     max_size: Optional[int] = Field(
         None,
+        ge=0,
         description="Maximum file size in bytes (files larger than this are excluded)"
     )
     min_size: Optional[int] = Field(
         None,
+        ge=0,
         description="Minimum file size in bytes (files smaller than this are excluded)"
     )
+
+    _normalized_path_pattern: str = PrivateAttr(default="*")
+    _path_matcher: re.Pattern[str] = PrivateAttr(default_factory=lambda: re.compile(".*"))
+    _regex_matcher: Optional[re.Pattern[str]] = PrivateAttr(default=None)
+
+    @staticmethod
+    def _normalize_path_pattern(pattern: str) -> str:
+        """Normalize patterns so basename-only globs match across directories."""
+        if "/" in pattern:
+            return pattern
+        return f"**/{pattern}"
+
+    @staticmethod
+    def _compile_glob_pattern(pattern: str) -> re.Pattern[str]:
+        """Compile glob pattern to regex with explicit support for ** and path separators."""
+        pieces: list[str] = ["^"]
+        i = 0
+
+        while i < len(pattern):
+            # **/ matches zero or more directories
+            if pattern[i:i + 3] == "**/":
+                pieces.append("(?:.*/)?")
+                i += 3
+            elif pattern[i:i + 2] == "**":
+                pieces.append(".*")
+                i += 2
+            elif pattern[i] == "*":
+                pieces.append("[^/]*")
+                i += 1
+            elif pattern[i] == "?":
+                pieces.append("[^/]")
+                i += 1
+            else:
+                pieces.append(re.escape(pattern[i]))
+                i += 1
+
+        pieces.append("$")
+        return re.compile("".join(pieces))
+
+    @model_validator(mode="after")
+    def _validate_and_prepare_matchers(self) -> "ViewQuery":
+        if (
+            self.min_size is not None
+            and self.max_size is not None
+            and self.min_size > self.max_size
+        ):
+            raise ValueError("min_size must be less than or equal to max_size")
+
+        self._normalized_path_pattern = self._normalize_path_pattern(self.path_pattern)
+        self._path_matcher = self._compile_glob_pattern(self._normalized_path_pattern)
+
+        if self.regex_pattern:
+            self._regex_matcher = re.compile(self.regex_pattern)
+        else:
+            self._regex_matcher = None
+
+        return self
+
+    def matches_path(self, path: str) -> bool:
+        """Match a path against the prepared glob strategy."""
+        return bool(self._path_matcher.match(path))
+
+    def matches_regex(self, path: str) -> bool:
+        """Match a path against optional regex filter."""
+        if self._regex_matcher is None:
+            return True
+        return bool(self._regex_matcher.search(path))
 
 
 class View(BaseModel):
@@ -98,10 +166,9 @@ class View(BaseModel):
 
         # Apply regex pattern if provided
         if self.query.regex_pattern:
-            pattern = re.compile(self.query.regex_pattern)
             entries = [
                 e for e in entries
-                if pattern.search(e.path)
+                if self.query.matches_regex(e.path)
             ]
 
         return entries
@@ -178,17 +245,7 @@ class View(BaseModel):
         Returns:
             True if path matches the pattern
         """
-        pattern = self.query.path_pattern
-
-        # Handle different pattern types
-        if "**" in pattern:
-            # Handle recursive glob patterns
-            # Convert ** pattern to regex
-            regex_pattern = pattern.replace("**", ".*").replace("*", "[^/]*")
-            return bool(re.match(regex_pattern, path))
-        else:
-            # Use simple fnmatch for non-recursive patterns
-            return fnmatch.fnmatch(path, pattern)
+        return self.query.matches_path(path)
 
     def _matches_size_filter(self, entry: FileEntry) -> bool:
         """Check if an entry matches size filters.
