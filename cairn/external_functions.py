@@ -5,11 +5,11 @@ within the Monty sandbox. These are the ONLY ways agents can interact with
 the host system.
 """
 
-import json
 from typing import Any, Protocol
 
 from agentfs_sdk import AgentFS
 
+from cairn.kv_store import KVRepository
 from cairn.external_models import (
     AskLlmRequest,
     FileExistsRequest,
@@ -305,8 +305,9 @@ class CairnExternalFunctions:
             changed_files=request.changed_files,
         )
 
-        # Store in agent's KV store
-        await self.agent_fs.kv.set("submission", json.dumps(submission.model_dump()))
+        # Store in agent's KV store using typed adapter format.
+        submission_repo = KVRepository(self.agent_fs)
+        await submission_repo.save_submission(self.agent_id, submission.model_dump())
         return True
 
     async def log(self, message: str) -> bool:
