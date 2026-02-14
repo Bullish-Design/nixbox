@@ -6,12 +6,24 @@ the host system.
 """
 
 import json
-import subprocess
-import time
-from pathlib import Path
 from typing import Any, Protocol
 
 from agentfs_sdk import AgentFS
+
+from cairn.external_models import (
+    AskLlmRequest,
+    FileExistsRequest,
+    ListDirRequest,
+    LogRequest,
+    ReadFileRequest,
+    ReadFileResponse,
+    SearchContentMatch,
+    SearchContentRequest,
+    SearchFilesRequest,
+    SubmissionPayload,
+    SubmitResultRequest,
+    WriteFileRequest,
+)
 
 
 class ExternalFunctions(Protocol):
@@ -135,9 +147,6 @@ class ExternalFunctions(Protocol):
 class CairnExternalFunctions:
     """Implementation of external functions for Cairn agents."""
 
-    # File size limits (10MB)
-    MAX_FILE_SIZE = 10 * 1024 * 1024
-
     def __init__(
         self,
         agent_id: str,
@@ -158,62 +167,42 @@ class CairnExternalFunctions:
         self.stable_fs = stable_fs
         self.llm_provider = llm_provider
 
-    def _validate_path(self, path: str) -> None:
-        """Validate file path for security.
-
-        Args:
-            path: Path to validate
-
-        Raises:
-            ValueError: If path is invalid
-        """
-        if ".." in path or path.startswith("/"):
-            raise ValueError(f"Invalid path: {path}")
-
     async def read_file(self, path: str) -> str:
         """Read file from agent overlay (falls through to stable)."""
-        self._validate_path(path)
+        request = ReadFileRequest(path=path)
 
         try:
             # Try to read from agent overlay first
-            content = await self.agent_fs.fs.read_file(path)
+            content = await self.agent_fs.fs.read_file(request.path)
         except FileNotFoundError:
             # Fall through to stable
-            content = await self.stable_fs.fs.read_file(path)
+            content = await self.stable_fs.fs.read_file(request.path)
 
-        # Check size limit
-        if len(content) > self.MAX_FILE_SIZE:
-            raise ValueError(f"File too large: {len(content)} bytes")
-
-        return content.decode("utf-8")
+        response = ReadFileResponse(content=content.decode("utf-8"))
+        return response.content
 
     async def write_file(self, path: str, content: str) -> bool:
         """Write file to agent overlay only."""
-        self._validate_path(path)
-
-        # Check content size
-        content_bytes = content.encode("utf-8")
-        if len(content_bytes) > self.MAX_FILE_SIZE:
-            raise ValueError(f"Content too large: {len(content_bytes)} bytes")
+        request = WriteFileRequest(path=path, content=content)
 
         # Write to agent overlay only
-        await self.agent_fs.fs.write_file(path, content_bytes)
+        await self.agent_fs.fs.write_file(request.path, request.content.encode("utf-8"))
         return True
 
     async def list_dir(self, path: str) -> list[str]:
         """List directory contents."""
-        self._validate_path(path)
+        request = ListDirRequest(path=path)
 
         # List from agent overlay (which includes stable via fallthrough)
-        entries = await self.agent_fs.fs.readdir(path)
+        entries = await self.agent_fs.fs.readdir(request.path)
         return [entry.name for entry in entries]
 
     async def file_exists(self, path: str) -> bool:
         """Check if file exists."""
-        self._validate_path(path)
+        request = FileExistsRequest(path=path)
 
         try:
-            await self.agent_fs.fs.stat(path)
+            await self.agent_fs.fs.stat(request.path)
             return True
         except FileNotFoundError:
             return False
@@ -223,6 +212,8 @@ class CairnExternalFunctions:
 
         This uses a temporary materialized workspace to run glob search.
         """
+        request = SearchFilesRequest(pattern=pattern)
+
         # For now, we'll walk the directory tree in AgentFS
         # In production, this should use materialized workspace
         results = []
@@ -237,7 +228,7 @@ class CairnExternalFunctions:
                         await walk_dir(full_path)
                     else:
                         # Simple glob matching (just * for now)
-                        if self._match_pattern(full_path, pattern):
+                        if self._match_pattern(full_path, request.pattern):
                             results.append(full_path)
             except FileNotFoundError:
                 pass
@@ -261,6 +252,8 @@ class CairnExternalFunctions:
 
     async def search_content(self, pattern: str, path: str = ".") -> list[dict[str, Any]]:
         """Search file contents using ripgrep (if available) or basic search."""
+        request = SearchContentRequest(pattern=pattern, path=path)
+
         # For MVP, we'll do basic search within AgentFS
         # In production, this should use ripgrep on materialized workspace
         results = []
@@ -272,17 +265,16 @@ class CairnExternalFunctions:
 
                 import re
 
-                regex = re.compile(pattern)
+                regex = re.compile(request.pattern)
 
                 for line_num, line in enumerate(lines, start=1):
                     if regex.search(line):
-                        results.append(
-                            {
-                                "file": file_path,
-                                "line": line_num,
-                                "text": line.strip(),
-                            }
+                        match = SearchContentMatch(
+                            file=file_path,
+                            line=line_num,
+                            text=line.strip(),
                         )
+                        results.append(match.model_dump())
             except Exception:
                 # Ignore errors (binary files, etc.)
                 pass
@@ -296,28 +288,31 @@ class CairnExternalFunctions:
 
     async def ask_llm(self, prompt: str, context: str = "") -> str:
         """Query LLM for assistance."""
+        request = AskLlmRequest(prompt=prompt, context=context)
+
         if self.llm_provider is None:
             raise RuntimeError("No LLM provider configured")
 
-        full_prompt = f"{context}\n\n{prompt}" if context else prompt
+        full_prompt = f"{request.context}\n\n{request.prompt}" if request.context else request.prompt
         response = await self.llm_provider.generate(full_prompt)
         return response
 
     async def submit_result(self, summary: str, changed_files: list[str]) -> bool:
         """Submit agent results for review."""
-        submission = {
-            "summary": summary,
-            "changed_files": changed_files,
-            "submitted_at": time.time(),
-        }
+        request = SubmitResultRequest(summary=summary, changed_files=changed_files)
+        submission = SubmissionPayload(
+            summary=request.summary,
+            changed_files=request.changed_files,
+        )
 
         # Store in agent's KV store
-        await self.agent_fs.kv.set("submission", json.dumps(submission))
+        await self.agent_fs.kv.set("submission", json.dumps(submission.model_dump()))
         return True
 
     async def log(self, message: str) -> bool:
         """Log debug message."""
-        print(f"[{self.agent_id}] {message}")
+        request = LogRequest(message=message)
+        print(f"[{self.agent_id}] {request.message}")
         return True
 
 
@@ -329,6 +324,9 @@ def create_external_functions(
 ) -> dict[str, Any]:
     """Create external functions dictionary for Monty.
 
+    The canonical argument/return schemas for each function are defined in
+    ``cairn.external_models.EXTERNAL_FUNCTION_SCHEMAS``.
+
     Args:
         agent_id: Agent identifier
         agent_fs: Agent's AgentFS instance
@@ -336,7 +334,7 @@ def create_external_functions(
         llm_provider: LLM provider for ask_llm
 
     Returns:
-        Dictionary mapping function names to callables
+        Dictionary mapping function names to callables.
     """
     ext_funcs = CairnExternalFunctions(agent_id, agent_fs, stable_fs, llm_provider)
 
