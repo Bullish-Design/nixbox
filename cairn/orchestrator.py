@@ -28,7 +28,9 @@ from cairn.code_generator import CodeGenerator
 from cairn.executor import AgentExecutor
 from cairn.settings import ExecutorSettings, OrchestratorSettings, PathsSettings
 from cairn.external_functions import create_external_functions
-from cairn.lifecycle import LifecycleRecord, LifecycleStore
+from cairn.kv_models import LifecycleRecord
+from cairn.kv_store import KVRepository
+from cairn.lifecycle import LifecycleStore
 from cairn.queue import TaskPriority, TaskQueue
 from cairn.signals import SignalHandler
 from cairn.watcher import FileWatcher
@@ -374,9 +376,8 @@ class CairnOrchestrator:
                 raise RuntimeError(execution_result.error or "execution failed")
 
             await transition(AgentState.SUBMITTING)
-            submission_raw = await ctx.agent_fs.kv.get("submission")
-            if submission_raw:
-                ctx.submission = json.loads(submission_raw)
+            submission_repo = KVRepository(ctx.agent_fs)
+            ctx.submission = await submission_repo.load_submission(ctx.agent_id)
 
             if self.materializer is not None:
                 await self.materializer.materialize(agent_id, ctx.agent_fs)

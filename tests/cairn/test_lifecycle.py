@@ -10,7 +10,9 @@ from agentfs_sdk import AgentFS
 from pydantic import ValidationError
 
 from cairn.agent import AgentState
-from cairn.lifecycle import LifecycleRecord, LifecycleStore
+from cairn.kv_models import LifecycleRecord
+from cairn.kv_store import KVRepository
+from cairn.lifecycle import LifecycleStore
 
 
 @pytest.mark.asyncio
@@ -75,3 +77,30 @@ def test_lifecycle_record_validation_errors() -> None:
             state_changed_at=1.0,
             db_path="/tmp/a.db",
         )
+
+
+@pytest.mark.asyncio
+async def test_submission_store_reads_legacy_payload(tmp_path: Path) -> None:
+    storage = await AgentFS.open(AgentFSOptions(path=str(tmp_path / "submission.db")).model_dump())
+    repo = KVRepository(storage)
+
+    await storage.kv.set("submission", '{"summary":"legacy","changed_files":["a.py"]}')
+    loaded = await repo.load_submission("agent-legacy")
+
+    assert loaded == {"summary": "legacy", "changed_files": ["a.py"]}
+
+    await storage.close()
+
+
+@pytest.mark.asyncio
+async def test_submission_store_round_trip_typed_payload(tmp_path: Path) -> None:
+    storage = await AgentFS.open(AgentFSOptions(path=str(tmp_path / "submission-typed.db")).model_dump())
+    repo = KVRepository(storage)
+
+    submission = {"summary": "typed", "changed_files": ["b.py"]}
+    await repo.save_submission("agent-typed", submission)
+
+    loaded = await repo.load_submission("agent-typed")
+    assert loaded == submission
+
+    await storage.close()
