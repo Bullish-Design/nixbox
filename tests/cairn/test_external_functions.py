@@ -6,9 +6,9 @@ Tests implement all contracts from ROADMAP-STEP_2.md.
 import json
 
 import pytest
-from agentfs_sdk import AgentFS
-from agentfs_pydantic import AgentFSOptions
+from pydantic import ValidationError
 
+from cairn.external_models import SearchContentMatch, SubmissionPayload
 from cairn.external_functions import create_external_functions
 
 
@@ -69,6 +69,17 @@ class TestExternalFunctions:
         assert "text" in results[0]
 
     @pytest.mark.asyncio
+    async def test_search_content_uses_model_dump(self, stable_fs, agent_fs):
+        """search_content serialization should match SearchContentMatch model_dump."""
+        await agent_fs.fs.write_file("main.py", b"def hello():\n    print('hello')")
+
+        ext_funcs = create_external_functions("test-agent", agent_fs, stable_fs)
+        results = await ext_funcs["search_content"]("hello", ".")
+
+        expected = SearchContentMatch(file="main.py", line=1, text="def hello():").model_dump()
+        assert expected in results
+
+    @pytest.mark.asyncio
     async def test_ask_llm(self, stable_fs, agent_fs, mock_llm_provider):
         """Contract 5: ask_llm integrates with LLM provider."""
         ext_funcs = create_external_functions(
@@ -95,6 +106,18 @@ class TestExternalFunctions:
         submission = json.loads(submission_str)
         assert submission["summary"] == "Added docstrings"
         assert submission["changed_files"] == ["main.py", "utils.py"]
+
+    @pytest.mark.asyncio
+    async def test_submit_result_uses_payload_model_dump(self, stable_fs, agent_fs):
+        """submit_result serialization should align with SubmissionPayload schema."""
+        ext_funcs = create_external_functions("test-agent", agent_fs, stable_fs)
+
+        await ext_funcs["submit_result"]("Summary", ["main.py"])
+
+        submission_str = await agent_fs.kv.get("submission")
+        submission = json.loads(submission_str)
+        validated = SubmissionPayload.model_validate(submission)
+        assert validated.model_dump() == submission
 
     @pytest.mark.asyncio
     async def test_file_exists(self, stable_fs, agent_fs):
@@ -131,15 +154,18 @@ class TestExternalFunctions:
         assert "Test message" in captured.out
 
     @pytest.mark.asyncio
-    async def test_invalid_path_rejected(self, stable_fs, agent_fs):
-        """Test that invalid paths are rejected."""
+    async def test_schema_validation_failures(self, stable_fs, agent_fs):
+        """Invalid args should fail through request schema validation."""
         ext_funcs = create_external_functions("test-agent", agent_fs, stable_fs)
 
-        with pytest.raises(ValueError, match="Invalid path"):
+        with pytest.raises(ValidationError, match="Invalid path"):
             await ext_funcs["read_file"]("../etc/passwd")
 
-        with pytest.raises(ValueError, match="Invalid path"):
+        with pytest.raises(ValidationError, match="Invalid path"):
             await ext_funcs["write_file"]("/etc/passwd", "hacked")
+
+        with pytest.raises(ValidationError, match="Invalid path"):
+            await ext_funcs["submit_result"]("summary", ["../bad.py"])
 
     @pytest.mark.asyncio
     async def test_file_size_limit(self, stable_fs, agent_fs):
@@ -149,5 +175,5 @@ class TestExternalFunctions:
 
         ext_funcs = create_external_functions("test-agent", agent_fs, stable_fs)
 
-        with pytest.raises(ValueError, match="too large"):
+        with pytest.raises(ValidationError, match="too large"):
             await ext_funcs["write_file"]("large.txt", large_content)
