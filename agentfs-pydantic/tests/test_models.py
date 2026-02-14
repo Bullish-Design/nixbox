@@ -1,6 +1,6 @@
 """Tests for agentfs_pydantic models."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 from agentfs_pydantic import (
@@ -101,6 +101,80 @@ def test_tool_call():
     assert call.result == {"results": ["result1"]}
     assert call.status == "success"
     assert call.error is None
+
+
+def test_tool_call_requires_error_for_error_status():
+    """ToolCall should require error message when status is error."""
+    now = datetime.now()
+    with pytest.raises(ValueError, match="error is required when status is 'error'"):
+        ToolCall(
+            id=2,
+            name="search",
+            status="error",
+            started_at=now,
+            completed_at=now,
+        )
+
+
+def test_tool_call_requires_result_for_success_status():
+    """ToolCall should require result payload when status is success."""
+    now = datetime.now()
+    with pytest.raises(ValueError, match="result is required when status is 'success'"):
+        ToolCall(
+            id=3,
+            name="search",
+            status="success",
+            started_at=now,
+            completed_at=now,
+        )
+
+
+def test_tool_call_computes_duration_when_missing():
+    """ToolCall should compute duration from started/completed timestamps."""
+    started = datetime.now()
+    completed = started + timedelta(seconds=1.25)
+    call = ToolCall(
+        id=4,
+        name="search",
+        status="success",
+        result={"results": []},
+        started_at=started,
+        completed_at=completed,
+    )
+
+    assert call.duration_ms == pytest.approx(1250.0)
+
+
+def test_tool_call_prefers_explicit_duration():
+    """ToolCall should preserve explicit duration over computed value."""
+    started = datetime.now()
+    completed = started + timedelta(seconds=2)
+    call = ToolCall(
+        id=5,
+        name="search",
+        status="success",
+        result={"results": []},
+        started_at=started,
+        completed_at=completed,
+        duration_ms=99.0,
+    )
+
+    assert call.duration_ms == 99.0
+
+
+def test_tool_call_coerces_legacy_status_strings():
+    """ToolCall should coerce known legacy status strings."""
+    now = datetime.now()
+    call = ToolCall(
+        id=6,
+        name="search",
+        status="failed",
+        error="boom",
+        started_at=now,
+        completed_at=now,
+    )
+
+    assert call.status == "error"
 
 
 def test_tool_call_stats():

@@ -7,6 +7,7 @@ from .models import (
     KVEntry,
     ToolCall,
     ToolCallStats,
+    ToolCallStatus,
 )
 from .view import View, ViewQuery
 
@@ -19,6 +20,7 @@ __all__ = [
     "KVEntry",
     "ToolCall",
     "ToolCallStats",
+    "ToolCallStatus",
     "View",
     "ViewQuery",
 ]
