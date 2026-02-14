@@ -11,6 +11,8 @@ from typing import Any, Optional
 import pydantic_monty
 from pydantic_monty import ResourceLimits
 
+from cairn.settings import ExecutorSettings
+
 
 @dataclass
 class ExecutionResult:
@@ -43,9 +45,10 @@ class AgentExecutor:
 
     def __init__(
         self,
-        max_execution_time: int = 60,
-        max_memory_bytes: int = 100 * 1024 * 1024,
-        max_recursion_depth: int = 1000,
+        max_execution_time: float | None = None,
+        max_memory_bytes: int | None = None,
+        max_recursion_depth: int | None = None,
+        settings: ExecutorSettings | None = None,
     ):
         """Initialize executor with resource limits.
 
@@ -54,9 +57,22 @@ class AgentExecutor:
             max_memory_bytes: Maximum memory in bytes (default: 100MB)
             max_recursion_depth: Maximum recursion depth (default: 1000)
         """
-        self.max_execution_time = max_execution_time
-        self.max_memory_bytes = max_memory_bytes
-        self.max_recursion_depth = max_recursion_depth
+        resolved = settings or ExecutorSettings()
+        effective = ExecutorSettings(
+            max_execution_time=(
+                max_execution_time if max_execution_time is not None else resolved.max_execution_time
+            ),
+            max_memory_bytes=(
+                max_memory_bytes if max_memory_bytes is not None else resolved.max_memory_bytes
+            ),
+            max_recursion_depth=(
+                max_recursion_depth if max_recursion_depth is not None else resolved.max_recursion_depth
+            ),
+        )
+
+        self.max_execution_time = effective.max_execution_time
+        self.max_memory_bytes = effective.max_memory_bytes
+        self.max_recursion_depth = effective.max_recursion_depth
 
     def _create_limits(self) -> ResourceLimits:
         """Create resource limits for Monty.

@@ -7,7 +7,6 @@ import json
 import shutil
 import time
 import uuid
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
@@ -27,21 +26,13 @@ from cairn.commands import (
 )
 from cairn.code_generator import CodeGenerator
 from cairn.executor import AgentExecutor
+from cairn.settings import ExecutorSettings, OrchestratorSettings, PathsSettings
 from cairn.external_functions import create_external_functions
 from cairn.lifecycle import LifecycleRecord, LifecycleStore
 from cairn.queue import TaskPriority, TaskQueue
 from cairn.signals import SignalHandler
 from cairn.watcher import FileWatcher
 from cairn.workspace import WorkspaceMaterializer
-
-
-@dataclass
-class OrchestratorConfig:
-    """Runtime configuration for orchestrator services."""
-
-    max_concurrent_agents: int = 5
-    enable_signal_polling: bool = True
-
 
 class CairnOrchestrator:
     """Main orchestrator managing agent lifecycle."""
@@ -50,16 +41,18 @@ class CairnOrchestrator:
         self,
         project_root: Path | str = ".",
         cairn_home: Path | str | None = None,
-        config: OrchestratorConfig | None = None,
+        config: OrchestratorSettings | None = None,
         code_generator: CodeGenerator | None = None,
         executor: AgentExecutor | None = None,
         external_functions_factory: Callable[[str, AgentFS, AgentFS, Any], dict[str, Any]]
         | None = None,
     ):
-        self.project_root = Path(project_root).resolve()
+        path_settings = PathsSettings()
+        self.project_root = Path(path_settings.project_root or project_root).resolve()
         self.agentfs_dir = self.project_root / ".agentfs"
-        self.cairn_home = Path(cairn_home or Path.home() / ".cairn").expanduser()
-        self.config = config or OrchestratorConfig()
+        resolved_cairn_home = path_settings.cairn_home or cairn_home or Path.home() / ".cairn"
+        self.cairn_home = Path(resolved_cairn_home).expanduser()
+        self.config = config or OrchestratorSettings()
 
         self.stable: AgentFS | None = None
         self.bin: AgentFS | None = None
@@ -70,7 +63,7 @@ class CairnOrchestrator:
         self._running_tasks: set[asyncio.Task[None]] = set()
 
         self.llm = code_generator or CodeGenerator()
-        self.executor = executor or AgentExecutor()
+        self.executor = executor or AgentExecutor(settings=ExecutorSettings())
         self.external_functions_factory = external_functions_factory or create_external_functions
 
         self.watcher: FileWatcher | None = None
