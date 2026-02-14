@@ -12,6 +12,7 @@ dependencies = [
     "pydantic-monty>=0.0.4",
     "llm>=0.13.0",
     "watchfiles>=0.20.0",
+    "pydantic-settings>=2.0.0",
 ]
 
 

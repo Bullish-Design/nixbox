@@ -17,12 +17,62 @@ from cairn.commands import (
     StatusCommand,
     parse_command_payload,
 )
+from cairn.executor import AgentExecutor
 from cairn.orchestrator import CairnOrchestrator
 from cairn.queue import TaskPriority
+from cairn.settings import ExecutorSettings, OrchestratorSettings, PathsSettings
+
+
+def _resolve_settings(args: argparse.Namespace) -> tuple[PathsSettings, OrchestratorSettings, ExecutorSettings]:
+    path_settings = PathsSettings()
+    orchestrator_settings = OrchestratorSettings()
+    executor_settings = ExecutorSettings()
+
+    return (
+        PathsSettings(
+            project_root=Path(args.project_root) if args.project_root is not None else path_settings.project_root,
+            cairn_home=Path(args.cairn_home) if args.cairn_home is not None else path_settings.cairn_home,
+        ),
+        OrchestratorSettings(
+            max_concurrent_agents=(
+                args.max_concurrent_agents
+                if args.max_concurrent_agents is not None
+                else orchestrator_settings.max_concurrent_agents
+            ),
+            enable_signal_polling=(
+                args.enable_signal_polling
+                if args.enable_signal_polling is not None
+                else orchestrator_settings.enable_signal_polling
+            ),
+        ),
+        ExecutorSettings(
+            max_execution_time=(
+                args.max_execution_time
+                if args.max_execution_time is not None
+                else executor_settings.max_execution_time
+            ),
+            max_memory_bytes=(
+                args.max_memory_bytes
+                if args.max_memory_bytes is not None
+                else executor_settings.max_memory_bytes
+            ),
+            max_recursion_depth=(
+                args.max_recursion_depth
+                if args.max_recursion_depth is not None
+                else executor_settings.max_recursion_depth
+            ),
+        ),
+    )
 
 
 async def _run_up(args: argparse.Namespace) -> int:
-    orchestrator = CairnOrchestrator(project_root=args.project_root, cairn_home=args.cairn_home)
+    path_settings, orchestrator_settings, executor_settings = _resolve_settings(args)
+    orchestrator = CairnOrchestrator(
+        project_root=path_settings.project_root or ".",
+        cairn_home=path_settings.cairn_home,
+        config=orchestrator_settings,
+        executor=AgentExecutor(settings=executor_settings),
+    )
     await orchestrator.initialize()
     await orchestrator.run()
     return 0
@@ -31,18 +81,35 @@ async def _run_up(args: argparse.Namespace) -> int:
 class CairnCommandClient:
     """Submit CLI commands through orchestrator command handling."""
 
-    def __init__(self, *, project_root: str | Path, cairn_home: str | Path | None) -> None:
-        self.project_root = project_root
-        self.cairn_home = cairn_home
+    def __init__(
+        self,
+        *,
+        path_settings: PathsSettings,
+        orchestrator_settings: OrchestratorSettings,
+        executor_settings: ExecutorSettings,
+    ) -> None:
+        self.path_settings = path_settings
+        self.orchestrator_settings = orchestrator_settings
+        self.executor_settings = executor_settings
 
     async def submit(self, command: CairnCommand) -> CommandResult:
-        orchestrator = CairnOrchestrator(project_root=self.project_root, cairn_home=self.cairn_home)
+        orchestrator = CairnOrchestrator(
+            project_root=self.path_settings.project_root or ".",
+            cairn_home=self.path_settings.cairn_home,
+            config=self.orchestrator_settings,
+            executor=AgentExecutor(settings=self.executor_settings),
+        )
         await orchestrator.initialize()
         return await orchestrator.submit_command(command)
 
 
 async def _submit_command(args: argparse.Namespace, command: CairnCommand) -> CommandResult:
-    client = CairnCommandClient(project_root=args.project_root, cairn_home=args.cairn_home)
+    path_settings, orchestrator_settings, executor_settings = _resolve_settings(args)
+    client = CairnCommandClient(
+        path_settings=path_settings,
+        orchestrator_settings=orchestrator_settings,
+        executor_settings=executor_settings,
+    )
 
     match command:
         case QueueCommand() | AcceptCommand() | RejectCommand() | StatusCommand() | ListAgentsCommand():
@@ -106,8 +173,13 @@ async def _run_reject(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="cairn")
-    parser.add_argument("--project-root", default=".")
+    parser.add_argument("--project-root", default=None)
     parser.add_argument("--cairn-home", default=None)
+    parser.add_argument("--max-concurrent-agents", type=int, default=None)
+    parser.add_argument("--enable-signal-polling", action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument("--max-execution-time", type=float, default=None)
+    parser.add_argument("--max-memory-bytes", type=int, default=None)
+    parser.add_argument("--max-recursion-depth", type=int, default=None)
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 

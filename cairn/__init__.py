@@ -4,8 +4,9 @@ from cairn.agent import AgentContext, AgentState
 from cairn.code_generator import CodeGenerator
 from cairn.executor import AgentExecutor, ExecutionResult
 from cairn.external_functions import ExternalFunctions, create_external_functions
-from cairn.orchestrator import CairnOrchestrator, OrchestratorConfig
+from cairn.orchestrator import CairnOrchestrator
 from cairn.queue import QueuedTask, TaskPriority, TaskQueue
+from cairn.settings import ExecutorSettings, OrchestratorSettings, PathsSettings
 from cairn.retry import RetryStrategy
 from cairn.signals import SignalHandler
 from cairn.watcher import FileWatcher
@@ -20,7 +21,9 @@ __all__ = [
     "ExecutionResult",
     "ExternalFunctions",
     "FileWatcher",
-    "OrchestratorConfig",
+    "ExecutorSettings",
+    "OrchestratorSettings",
+    "PathsSettings",
     "QueuedTask",
     "RetryStrategy",
     "SignalHandler",

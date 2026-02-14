@@ -113,3 +113,38 @@ def test_cli_adapter_emits_normalized_cairn_command(
 
     assert exit_code == 0
     assert emitted == [expected]
+
+
+def test_cli_flags_override_env_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("CAIRN_ORCHESTRATOR_MAX_CONCURRENT_AGENTS", "2")
+    monkeypatch.setenv("CAIRN_EXECUTOR_MAX_EXECUTION_TIME", "11")
+
+    captured = {}
+
+    async def _initialize(self):  # noqa: ANN001
+        captured["config"] = self.config
+        captured["executor"] = self.executor
+
+    async def _submit_command(self, command):  # noqa: ANN001
+        class _Result:
+            payload: dict[str, object] = {}
+
+        return _Result()
+
+    monkeypatch.setattr("cairn.orchestrator.CairnOrchestrator.initialize", _initialize)
+    monkeypatch.setattr("cairn.orchestrator.CairnOrchestrator.submit_command", _submit_command)
+
+    exit_code = main([
+        "--project-root",
+        str(tmp_path),
+        "--max-concurrent-agents",
+        "5",
+        "--max-execution-time",
+        "3",
+        "list-agents",
+    ])
+
+    assert exit_code == 0
+    assert captured["config"].max_concurrent_agents == 5
+    assert captured["executor"].max_execution_time == 3
+

@@ -12,7 +12,8 @@ import pytest
 from cairn.agent import AgentState
 from cairn.commands import CommandType, parse_command_payload
 from cairn.executor import ExecutionResult
-from cairn.orchestrator import CairnOrchestrator, OrchestratorConfig
+from cairn.orchestrator import CairnOrchestrator
+from cairn.settings import OrchestratorSettings
 from cairn.queue import TaskPriority
 
 
@@ -70,7 +71,7 @@ async def test_initialize_passes_signal_polling_config(tmp_path: Path) -> None:
     orch = CairnOrchestrator(
         project_root=tmp_path,
         cairn_home=tmp_path / ".cairn",
-        config=OrchestratorConfig(enable_signal_polling=False),
+        config=OrchestratorSettings(enable_signal_polling=False),
         code_generator=FakeCodeGenerator(),
         executor=FakeExecutor(),
     )
@@ -215,7 +216,7 @@ async def test_concurrency_gate_keeps_second_agent_queued_until_slot_is_free(tmp
     orch = CairnOrchestrator(
         project_root=tmp_path,
         cairn_home=tmp_path / ".cairn",
-        config=OrchestratorConfig(max_concurrent_agents=1),
+        config=OrchestratorSettings(max_concurrent_agents=1),
         code_generator=FakeCodeGenerator(),
         executor=executor,
     )
