@@ -1,9 +1,10 @@
 """Pydantic models for AgentFS SDK."""
 
 from datetime import datetime
+from enum import Enum
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, computed_field, field_validator, model_validator
 
 
 class AgentFSOptions(BaseModel):
@@ -88,16 +89,64 @@ class ToolCall(BaseModel):
         None,
         description="Error message (for failed calls)"
     )
-    status: str = Field(description="Call status: 'pending', 'success', or 'error'")
+    status: "ToolCallStatus" = Field(description="Call status: 'pending', 'success', or 'error'")
     started_at: datetime = Field(description="Call start timestamp")
     completed_at: Optional[datetime] = Field(
         None,
         description="Call completion timestamp"
     )
-    duration_ms: Optional[float] = Field(
+    explicit_duration_ms: Optional[float] = Field(
         None,
+        alias="duration_ms",
         description="Call duration in milliseconds"
     )
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def coerce_legacy_status(cls, value: Any) -> Any:
+        """Coerce legacy status strings into canonical enum values."""
+        if isinstance(value, ToolCallStatus):
+            return value
+        if not isinstance(value, str):
+            return value
+
+        normalized = value.strip().lower()
+        legacy_map = {
+            "ok": ToolCallStatus.SUCCESS,
+            "done": ToolCallStatus.SUCCESS,
+            "failed": ToolCallStatus.ERROR,
+            "failure": ToolCallStatus.ERROR,
+            "in_progress": ToolCallStatus.PENDING,
+        }
+        return legacy_map.get(normalized, normalized)
+
+    @model_validator(mode="after")
+    def validate_status_consistency(self) -> "ToolCall":
+        """Enforce consistency between status and result/error payloads."""
+        if self.status == ToolCallStatus.ERROR and not self.error:
+            raise ValueError("error is required when status is 'error'")
+        if self.status == ToolCallStatus.SUCCESS and self.result is None:
+            raise ValueError("result is required when status is 'success'")
+        return self
+
+    @computed_field
+    @property
+    def duration_ms(self) -> Optional[float]:
+        """Return explicit duration when provided, otherwise compute from timestamps."""
+        if self.explicit_duration_ms is not None:
+            return self.explicit_duration_ms
+        if self.completed_at is None:
+            return None
+        delta = self.completed_at - self.started_at
+        return delta.total_seconds() * 1000
+
+
+class ToolCallStatus(str, Enum):
+    """Enumerates supported tool call statuses."""
+
+    PENDING = "pending"
+    SUCCESS = "success"
+    ERROR = "error"
 
 
 class ToolCallStats(BaseModel):
