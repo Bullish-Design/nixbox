@@ -58,8 +58,19 @@ let
       -e "s|https://github.com/dj95/zjstatus/releases/latest/download/zjstatus.wasm|$f/zjstatus.wasm|g"
   '';
 
-  # Treesitter grammars provided from Nix (mirrors ~/.dotfiles/nvim/default.nix).
-  treesitterGrammars = pkgs.vimPlugins.nvim-treesitter.withAllGrammars.dependencies;
+  # Treesitter grammars provided from Nix. `withAllGrammars` is ~300 MB; by
+  # default we bundle a curated common set (covers the config's ftplugin
+  # languages + the usual suspects) and let any other language's grammar install
+  # at runtime. Set `nixbox.allTreesitterGrammars = true` for the full set.
+  treesitterGrammars =
+    if cfg.allTreesitterGrammars then
+      pkgs.vimPlugins.nvim-treesitter.withAllGrammars.dependencies
+    else
+      (pkgs.vimPlugins.nvim-treesitter.withPlugins (g: with g; [
+        bash c comment css diff dockerfile gitcommit git_rebase gitignore
+        html javascript json json5 lua luadoc markdown markdown_inline nix
+        python query regex rust toml tsx typescript vim vimdoc yaml
+      ])).dependencies;
   grammarPath = pkgs.symlinkJoin {
     name = "nvim-treesitter-grammars";
     paths = treesitterGrammars;
@@ -107,20 +118,6 @@ web_server_port ${toString cfg.webPort}
 KDL
   '';
 
-  # LSP servers from ~/.dotfiles/nvim/default.nix.
-  lspServers = with pkgs; [
-    basedpyright
-    ty
-    ruff
-    vtsls
-    vscode-langservers-extracted
-    lua-language-server
-    nil
-    rust-analyzer
-    yaml-language-server
-    markdown-oxide
-  ];
-
   # Optional zelligate manifest interop (same JSON shape as
   # zelligate/modules/devenv.nix) — only emitted when `name` is set.
   manifestJson = builtins.toJSON {
@@ -154,6 +151,55 @@ in
       default = "";
       description = "Optional zelligate repo name. When set, a zelligate-manifest script is exposed for auto-discovery.";
     };
+
+    lspServers = lib.mkOption {
+      type = lib.types.listOf lib.types.package;
+      default = with pkgs; [
+        basedpyright ty ruff vtsls vscode-langservers-extracted
+        lua-language-server nil rust-analyzer yaml-language-server markdown-oxide
+      ];
+      defaultText = lib.literalExpression "the full set from ~/.dotfiles/nvim/default.nix";
+      description = ''
+        LSP servers bundled in the environment. These dominate image size — the
+        node-based ones especially (basedpyright ~880MB, vtsls ~450MB,
+        vscode-langservers-extracted ~310MB, yaml-language-server ~260MB). Trim
+        this list (or set it to `[]`) for a much smaller image; e.g. keep just
+        `[ pkgs.ty pkgs.ruff pkgs.nil pkgs.lua-language-server ]`.
+      '';
+    };
+
+    allTreesitterGrammars = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = ''
+        Bundle ALL treesitter grammars (~300MB) instead of the curated common
+        set. With the curated set, grammars for other languages install at
+        runtime (needs network once, like vim.pack plugins).
+      '';
+    };
+
+    tailscale = {
+      enable = lib.mkEnableOption "joining a tailnet and serving the web port over Tailscale (userspace networking)";
+
+      hostname = lib.mkOption {
+        type = lib.types.str;
+        default = "nixbox";
+        description = "Tailscale device hostname for this container.";
+      };
+
+      funnel = lib.mkOption {
+        type = lib.types.bool;
+        default = false;
+        description = "Use `tailscale funnel` (public internet) instead of `tailscale serve` (tailnet-only).";
+      };
+
+      extraUpArgs = lib.mkOption {
+        type = lib.types.listOf lib.types.str;
+        default = [ ];
+        example = lib.literalExpression ''[ "--ssh" "--accept-routes" ]'';
+        description = "Extra arguments passed to `tailscale up`.";
+      };
+    };
   };
 
   config = lib.mkMerge [
@@ -164,7 +210,7 @@ in
       znv
       zellij
       pkgs.git
-    ] ++ lspServers;
+    ] ++ cfg.lspServers;
 
     env.EDITOR = "nvim";
 
@@ -217,6 +263,9 @@ in
     scripts.nixbox-start.exec = ''
       set -uo pipefail
       nixbox-preseed || echo "nixbox: preseed skipped (continuing — run 'nixbox-preseed' with network to warm plugins)"
+      ${lib.optionalString cfg.tailscale.enable ''
+      nixbox-tailscale || echo "nixbox: tailscale bring-up failed (continuing — web still on localhost)"
+      ''}
       exec nixbox-web
     '';
 
@@ -235,6 +284,45 @@ in
         cat <<'JSON'
 ${manifestJson}
 JSON
+      '';
+    })
+
+    # Optional Tailscale: join the tailnet and serve the web port directly, so
+    # the container is reachable over Tailscale without host networking or a
+    # separate forwarder. Uses userspace networking (no /dev/net/tun needed).
+    # Auth via the TS_AUTHKEY env var; state persists under XDG_DATA.
+    (lib.mkIf (cfg.enable && cfg.tailscale.enable) {
+      packages = [ pkgs.tailscale ];
+
+      scripts.nixbox-tailscale.exec = ''
+        set -uo pipefail
+        ts=${pkgs.tailscale}/bin/tailscale
+        tsd=${pkgs.tailscale}/bin/tailscaled
+        sock="''${XDG_RUNTIME_DIR:-/tmp}/nixbox-tailscaled.sock"
+        statedir="''${XDG_DATA_HOME:-$HOME/.local/share}/nixbox/tailscale"
+        mkdir -p "$statedir"
+
+        if ! "$ts" --socket="$sock" status >/dev/null 2>&1; then
+          echo "nixbox: starting tailscaled (userspace networking)"
+          "$tsd" --tun=userspace-networking --socket="$sock" \
+            --statedir="$statedir" >"$statedir/tailscaled.log" 2>&1 &
+          for i in $(seq 1 30); do
+            "$ts" --socket="$sock" status >/dev/null 2>&1 && break
+            # 'status' exits non-zero when logged out but daemon is up; treat
+            # "NeedsLogin" as ready.
+            "$ts" --socket="$sock" status 2>&1 | grep -q "Logged out\|NeedsLogin\|Stopped" && break
+            sleep 0.5
+          done
+        fi
+
+        echo "nixbox: tailscale up (hostname=${cfg.tailscale.hostname})"
+        "$ts" --socket="$sock" up \
+          --hostname="${cfg.tailscale.hostname}" \
+          ''${TS_AUTHKEY:+--authkey="$TS_AUTHKEY"} \
+          ${lib.escapeShellArgs cfg.tailscale.extraUpArgs}
+
+        echo "nixbox: ${if cfg.tailscale.funnel then "funnel" else "serve"} -> http://127.0.0.1:${toString cfg.webPort}"
+        "$ts" --socket="$sock" ${if cfg.tailscale.funnel then "funnel" else "serve"} --bg ${toString cfg.webPort}
       '';
     })
   ];

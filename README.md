@@ -45,11 +45,20 @@ imports:
 `devenv.nix`:
 
 ```nix
+{ pkgs, ... }:
 {
   nixbox.enable = true;
   # nixbox.webPort = 8920;       # zellij web port (default)
   # nixbox.bind = "127.0.0.1";   # keep loopback; front it externally
   # nixbox.name = "my-repo";     # optional: expose a zelligate manifest
+
+  # Image size levers (see "Image size" below):
+  # nixbox.lspServers = with pkgs; [ ty ruff nil lua-language-server ];
+  # nixbox.allTreesitterGrammars = false;   # default; true bundles all (~+240MB)
+
+  # Join a tailnet and serve the web port directly (see "Tailscale" below):
+  # nixbox.tailscale.enable = true;
+  # nixbox.tailscale.hostname = "my-box";
 }
 ```
 
@@ -79,6 +88,54 @@ preseed and web token happen only once and survive restarts, and uses
 non-loopback binds need `--cert`/`--key`, so public exposure / TLS is handled by
 an external forwarder (zelligate's socat, or Tailscale), matching zelligate.
 
+## Tailscale
+
+Instead of host networking, the container can join your tailnet and serve the
+web port directly (userspace networking — no `/dev/net/tun`, no privileged
+container):
+
+```nix
+nixbox.tailscale.enable = true;
+nixbox.tailscale.hostname = "my-box";
+# nixbox.tailscale.funnel = true;            # expose to the public internet
+# nixbox.tailscale.extraUpArgs = [ "--ssh" ];
+```
+
+Pass an auth key at run time (`TS_AUTHKEY`), e.g. in `compose.yaml`:
+
+```yaml
+services:
+  nixbox:
+    environment:
+      - TS_AUTHKEY=tskey-auth-...      # or use an env_file / secret
+```
+
+`nixbox-start` then runs `tailscaled --tun=userspace-networking`, `tailscale up`,
+and `tailscale serve --bg <webPort>` — so the terminal is reachable at
+`https://<hostname>.<tailnet>.ts.net` with no host-network or forwarder. State
+persists on the data volume, so re-auth isn't needed on restart.
+
+## Image size
+
+The default image is large because the bundled LSP servers (especially the
+node-based ones) dominate. Measured sizes of the nix2container image:
+
+| Config | Size |
+|---|---|
+| original (`withAllGrammars` + all LSPs) | ~2.95 GB |
+| **default** (curated grammars + all LSPs) | ~2.71 GB |
+| lean (curated grammars + `[ ty ruff nil lua-language-server rust-analyzer markdown-oxide ]`) | **~1.62 GB** |
+
+Two levers:
+
+- **`nixbox.lspServers`** — the biggest one. The node-based servers are heavy
+  (basedpyright ~880 MB, vtsls ~450 MB, vscode-langservers-extracted ~310 MB,
+  yaml-language-server ~260 MB). Trim the list to what you use; e.g.
+  `nixbox.lspServers = with pkgs; [ ty ruff nil lua-language-server ];`.
+- **`nixbox.allTreesitterGrammars`** — `false` (default) bundles a curated common
+  set (~60 MB vs ~300 MB); other languages' grammars install at runtime. Set
+  `true` to bundle everything.
+
 ## Offline / vendored plugins
 
 The image runs without network at startup once warmed:
@@ -105,16 +162,20 @@ scripts/sync-config.sh            # re-vendor nvim/ + zellij/ (preserves plugins
 
 | Command | What it does |
 |---|---|
-| `nixbox-start` | Entrypoint: preseed (once) + token bootstrap + web server. |
+| `nixbox-start` | Entrypoint: preseed (once) + token bootstrap + (optional tailscale) + web server. |
 | `nixbox-web` | Start the zellij web server (`bind:webPort`); bootstraps a token. |
 | `nixbox-token` | Create a zellij web login token. |
 | `nixbox-preseed` | Clone `vim.pack` plugins + treesitter (one-off, needs network). |
+| `nixbox-tailscale` | (when `tailscale.enable`) bring up tailscaled + `tailscale serve`. |
 | `nvim` / `nv` | Neovim with the vendored config. |
 | `znv` | Zellij with the `nvim` layout. |
 
 ## Deferred work
 
 - Multi-spawn / one-container-per-env orchestration (extend zelligate or a spawner).
-- fornix interactive **inbound** reachability (the web server bind inside the srt
-  sandbox — see [`examples/fornix`](examples/fornix); egress/offline is solved).
-- Baking Tailscale into the image (kept a host/zelligate concern).
+- End-to-end test of the `github:…?dir=modules` import form from a separate repo.
+
+fornix interactive **inbound** reachability is **not deferred but ruled out** —
+srt's `--unshare-net` model makes it impossible without an upstream change; see
+[`examples/fornix`](examples/fornix) for the full analysis. Image size and
+Tailscale are addressed above.

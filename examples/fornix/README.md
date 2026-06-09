@@ -47,17 +47,31 @@ fornix run demo -- nixbox-web          # start the terminal inside the sandbox
 
 or set `FORNIX_AGENT_COMMAND=nixbox-web` so `fornix run demo` launches it.
 
-## Open integration point: reaching the web server
+## Reaching the web server: the hard limit (resolved)
 
-`nixbox-web` binds `127.0.0.1:<webPort>` *inside the sandbox*. Whether you can
-reach it from the host depends on srt's network model:
+**You cannot reach `nixbox-web` from the host when it runs inside a fornix
+sandbox.** This is by design, not a gap to patch:
 
-- **Shared network namespace** → the bind is on the host's loopback; reach it at
-  `127.0.0.1:<webPort>` (front with `tailscale serve`).
-- **Isolated namespace** → use srt's SOCKS5 proxy, or run a forwarder, to bridge
-  in. (srt is built for *egress* control of agents, not inbound serving, so this
-  is the part that needs validation for interactive use.)
+- srt enforces default-deny networking with **`--unshare-net` + a private
+  loopback bridge** (fornix's `BACKEND_DECISION.md`). The sandbox gets its *own*
+  network namespace, so `nixbox-web` on `127.0.0.1:<webPort>` binds the
+  *sandbox's* loopback — invisible to the host's `127.0.0.1`.
+- srt's only network egress hatch is a **SOCKS5 proxy for outbound** traffic and
+  a per-domain allowlist. There is **no inbound port-publish** and no exposed
+  handle to the sandbox netns, so a host-side forwarder has nothing to attach to.
+- `network.allowLocalBinding` only governs whether the sandboxed process may bind
+  *within its own* namespace — it does not bridge to the host.
 
-For interactive terminals reached over Tailscale, the Docker path
-(`compose.yaml` + zelligate) is currently the smoother option; fornix shines for
-**autonomous-agent** isolation where inbound reachability matters less.
+So srt is the right tool for **isolating an autonomous agent's execution**
+(filesystem + egress), and the wrong tool for **serving an interactive web
+terminal you browse to**. Reaching in would require an upstream srt feature
+(inbound publish, or a documented netns handle) that doesn't exist today.
+
+### What to do instead
+
+- **Interactive terminal over Tailscale** → use the Docker path
+  (`compose.yaml`, optionally `nixbox.tailscale.enable`, or zelligate). That's
+  what nixbox is built for.
+- **Agent isolation** → keep using fornix, but run the *agent command* in the
+  sandbox (`fornix run <id> -- <agent>`), not a web server. The agent can launch
+  `nvim`/`znv` for its own use; it just isn't reachable from outside.
