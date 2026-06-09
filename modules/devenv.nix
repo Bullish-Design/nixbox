@@ -1,4 +1,4 @@
-# nixbox — importable devenv module.
+# nixbox v0.1.0 — importable devenv module.
 #
 # Provides a personal terminal-only interface: the vendored Neovim config
 # (config/nvim) running over a Zellij web server (config/zellij). Self-contained:
