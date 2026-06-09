@@ -270,8 +270,79 @@ in
     '';
 
     # Run the full entrypoint as a managed process (used by `devenv up` and the
-    # container image).
-    processes.nixbox.exec = "nixbox-start";
+    # container image). Omitted under `devenv test` so it doesn't race the
+    # self-contained web server that nixbox-selfcheck starts.
+    processes = lib.optionalAttrs (!config.devenv.isTesting) {
+      nixbox.exec = "nixbox-start";
+    };
+
+    # Self-contained verification used by CI (`devenv shell nixbox-selfcheck`) and
+    # by `devenv test` (via enterTest). Static invariants + a LIVE check that the
+    # zellij web server actually binds and speaks HTTP — the regression that the
+    # "started but never bound" bug would have slipped past. No network needed:
+    # plugins are vendored as file: paths and nvim is only version-checked here.
+    scripts.nixbox-selfcheck.exec = ''
+      set -uo pipefail
+      fails=0
+      pass(){ echo "  PASS $*"; }
+      fail(){ echo "  FAIL $*"; fails=$((fails + 1)); }
+      port=${toString cfg.webPort}
+
+      echo "== nixbox selfcheck =="
+      echo "[1] commands resolve"
+      for c in nvim nv znv zellij nixbox-web nixbox-token nixbox-preseed nixbox-start; do
+        command -v "$c" >/dev/null 2>&1 && pass "$c" || fail "$c missing"
+      done
+
+      echo "[2] neovim >= 0.12 (vim.pack)"
+      v=$(${nvimWrapper}/bin/nvim --version | head -1 | grep -oE '[0-9]+\.[0-9]+' | head -1)
+      if [ "$(printf '0.12\n%s\n' "$v" | sort -V | head -1)" = "0.12" ]; then pass "nvim $v"; else fail "nvim $v < 0.12"; fi
+
+      echo "[3] zellij web config is offline (file: plugins, no https)"
+      if grep -q 'file:' "${zellijWebConfig}" && ! grep -q 'https://' "${zellijWebConfig}"; then
+        pass "plugin URLs rewritten to file:"
+      else
+        fail "plugin URLs not rewritten"
+      fi
+      n=$(ls "${zellijPlugins}"/*.wasm 2>/dev/null | wc -l)
+      if [ "''${n:-0}" -ge 4 ]; then pass "$n vendored wasm present"; else fail "only ''${n:-0} wasm vendored"; fi
+
+      echo "[4] live: zellij web binds and serves on :$port"
+      home=$(mktemp -d)
+      export HOME="$home" XDG_DATA_HOME="$home/data" XDG_CACHE_HOME="$home/cache"
+      mkdir -p "$XDG_DATA_HOME" "$XDG_CACHE_HOME"
+      # setsid -> own process group, so cleanup can reap the whole tree (the
+      # nixbox-web wrapper exec's zellij as a child, so killing $! alone orphans
+      # the server).
+      setsid nixbox-web >"$home/web.log" 2>&1 &
+      wpid=$!
+      cleanup_web() {
+        ${zellij}/bin/zellij --config "${zellijWebConfig}" web --stop >/dev/null 2>&1 || true
+        kill -TERM -"$wpid" 2>/dev/null || kill "$wpid" 2>/dev/null || true
+        wait "$wpid" 2>/dev/null || true
+      }
+      trap cleanup_web EXIT
+      bound=""
+      for _ in $(seq 1 30); do
+        if (exec 3<>/dev/tcp/127.0.0.1/$port) 2>/dev/null; then bound=1; break; fi
+        sleep 1
+      done
+      if [ -n "$bound" ]; then
+        pass "port $port bound (server is listening)"
+        resp=$( { exec 3<>/dev/tcp/127.0.0.1/$port; printf 'GET / HTTP/1.0\r\nHost: localhost\r\n\r\n' >&3; head -1 <&3; exec 3>&- 3<&-; } 2>/dev/null || true)
+        case "$resp" in
+          HTTP/*\ [23]*) pass "web responds: $(echo "$resp" | tr -d '\r')" ;;
+          *) fail "unexpected web response: '$(echo "$resp" | tr -d '\r')'" ;;
+        esac
+        if [ -f "$XDG_DATA_HOME/nixbox/web-token-created" ]; then pass "login token bootstrapped"; else fail "no token sentinel"; fi
+      else
+        fail "web server never bound on :$port"; tail -5 "$home/web.log" 2>/dev/null || true
+      fi
+      cleanup_web; trap - EXIT
+
+      echo
+      if [ "$fails" -eq 0 ]; then echo "nixbox selfcheck: ALL PASS"; else echo "nixbox selfcheck: $fails FAILURE(S)"; exit 1; fi
+    '';
 
     enterShell = ''
       echo "nixbox ready — 'nixbox-start' (preseed + web) is the entrypoint; 'nixbox-web' / 'nixbox-preseed' / 'nixbox-token' available individually."

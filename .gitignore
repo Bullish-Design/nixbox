@@ -13,3 +13,6 @@ devenv.local.nix
 
 # example/runtime preseed data
 .nixbox/
+
+# local agent state
+.claude/
