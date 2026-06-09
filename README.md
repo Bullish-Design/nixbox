@@ -170,12 +170,27 @@ scripts/sync-config.sh            # re-vendor nvim/ + zellij/ (preserves plugins
 | `nvim` / `nv` | Neovim with the vendored config. |
 | `znv` | Zellij with the `nvim` layout. |
 
-## Deferred work
+## Scope: the isolation model
 
-- Multi-spawn / one-container-per-env orchestration (extend zelligate or a spawner).
-- End-to-end test of the `github:…?dir=modules` import form from a separate repo.
+nixbox is the *environment*; isolation and multi-environment spawning are owned by
+the surrounding tools, split along two axes — **who runs the code** and **how hard
+the boundary needs to be**:
 
-fornix interactive **inbound** reachability is **not deferred but ruled out** —
-srt's `--unshare-net` model makes it impossible without an upstream change; see
-[`examples/fornix`](examples/fornix) for the full analysis. Image size and
-Tailscale are addressed above.
+| Need | Owner | Status |
+|---|---|---|
+| Many **interactive** terminals over Tailscale, *soft* isolation (your own cooperating repos) | **zelligate** (1 container, per-repo process/port/XDG isolation) | available |
+| Parallel **autonomous-agent** sandboxes — disposable, hard filesystem + egress isolation | **fornix** (btrfs fork + srt `--unshare-net`) | integrated — see [`examples/fornix`](examples/fornix) |
+| Many **interactive** terminals, each with a **hard kernel/container boundary** | a Docker one-container-per-env spawner | **intentionally out of scope** |
+
+**The one-container-per-interactive-env spawner is a deliberate non-goal.** It is
+only needed to run *untrusted or mutually-distrusting* code in different
+browse-to terminals. For the actual use case — your own projects — zelligate's
+soft isolation is sufficient, and for autonomous agents fornix already provides a
+hard boundary. fornix cannot serve this case itself: srt's `--unshare-net` private
+network namespace makes an in-sandbox web server unreachable from the host (full
+analysis in [`examples/fornix`](examples/fornix)). Revisit only if a "hard
+boundary between interactive envs" requirement appears.
+
+Image size and Tailscale are addressed above. The `github:…?dir=modules` import
+form is verified end-to-end (a bare repo importing nixbox gets a working
+`nvim`/`nixbox-web`, vendored wasm included).
