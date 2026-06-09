@@ -57,39 +57,64 @@ Then:
 
 ```bash
 devenv shell
-nixbox-preseed     # one-off: clone neovim plugins (needs network)
-nixbox-token       # one-off: create a web login token
-nixbox-web         # start the zellij web server
+nixbox-start       # preseed plugins (first run) + start the web server
 ```
 
-Open `http://127.0.0.1:8920` (or front it via zelligate/Tailscale).
+`nixbox-start` is the entrypoint: it runs `nixbox-preseed` once (clones the
+`vim.pack` plugins — needs network the first time) and bootstraps a web login
+token, then starts the server. Open `http://127.0.0.1:8920` (or front it via
+zelligate / `tailscale serve`).
 
-## Build the container image
+## Build & run the container image
 
 ```bash
-devenv container build nixbox      # produces a Docker image
-# run it; entrypoint is `nixbox-web` (processes.nixbox)
+devenv container build nixbox      # produces a nix2container image (entrypoint: nixbox-start)
+docker compose up                  # run it with persistent state (see compose.yaml)
 ```
 
-`bind` stays on loopback by default; public exposure / TLS is handled by an
-external forwarder (zelligate's socat, or Tailscale), matching zelligate's
-networking model. Binding `zellij web` to a non-loopback address directly
-requires `--cert`/`--key`.
+`compose.yaml` mounts named volumes for `~/.local` and `~/.cache` so the plugin
+preseed and web token happen only once and survive restarts, and uses
+`network_mode: host` so the loopback bind is reachable (front it with
+`tailscale serve` / a reverse proxy). `bind` stays on loopback by default;
+non-loopback binds need `--cert`/`--key`, so public exposure / TLS is handled by
+an external forwarder (zelligate's socat, or Tailscale), matching zelligate.
+
+## Offline / vendored plugins
+
+The image runs without network at startup once warmed:
+
+- **Zellij plugins** (`autolock`, `attention`, `bookmarks`, `zjstatus`) are
+  vendored as `.wasm` under `modules/config/zellij/plugins/`; the module rewrites
+  the config's plugin URLs to local `file:` paths. Refresh with
+  `scripts/fetch-zellij-plugins.sh`.
+- **Neovim `vim.pack` plugins** are fetched once by `nixbox-preseed` and persisted
+  to the data volume.
+
+This is what makes nixbox usable inside fornix's default-deny sandbox — see
+[`examples/fornix`](examples/fornix).
+
+## Keeping configs in sync with ~/.dotfiles
+
+The vendored configs are a snapshot. Re-sync after changing your dotfiles:
+
+```bash
+scripts/sync-config.sh            # re-vendor nvim/ + zellij/ (preserves plugins/)
+```
 
 ## Commands
 
 | Command | What it does |
 |---|---|
-| `nixbox-web` | Start the zellij web server (`bind:webPort`). |
+| `nixbox-start` | Entrypoint: preseed (once) + token bootstrap + web server. |
+| `nixbox-web` | Start the zellij web server (`bind:webPort`); bootstraps a token. |
 | `nixbox-token` | Create a zellij web login token. |
 | `nixbox-preseed` | Clone `vim.pack` plugins + treesitter (one-off, needs network). |
 | `nvim` / `nv` | Neovim with the vendored config. |
 | `znv` | Zellij with the `nvim` layout. |
 
-## Notes & deferred work
+## Deferred work
 
-- **Plugin fetch:** the Neovim config uses `vim.pack`, which clones ~55 plugins at
-  runtime. `nixbox-preseed` warms them; without it, the first Neovim launch fetches
-  them (needs network + a writable data dir).
-- **Deferred:** multi-spawn / one-container-per-env orchestration, fornix-based
-  isolation, and baking Tailscale into the image — all out of scope for now.
+- Multi-spawn / one-container-per-env orchestration (extend zelligate or a spawner).
+- fornix interactive **inbound** reachability (the web server bind inside the srt
+  sandbox — see [`examples/fornix`](examples/fornix); egress/offline is solved).
+- Baking Tailscale into the image (kept a host/zelligate concern).

@@ -1,0 +1,13 @@
+# yaml-language-server: $schema=https://devenv.sh/devenv.schema.json
+#
+# Example repo-main for running nixbox inside a fornix sandbox.
+inputs:
+  nixpkgs:
+    url: github:cachix/devenv-nixpkgs/rolling
+  nixbox:
+    # For local development use: url: path:../../modules
+    url: github:Bullish-Design/nixbox?dir=modules
+    flake: false
+
+imports:
+  - nixbox

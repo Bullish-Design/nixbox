@@ -40,6 +40,23 @@ let
   # --- Vendored configs (in-store, path-independent) -----------------------
   nvimConfig = ./config/nvim;
   zellijConfig = ./config/zellij;
+  zellijPlugins = ./config/zellij/plugins;
+
+  # Patched zellij config dir: the vendored config + layouts with the four
+  # plugin URLs rewritten to local `file:` paths (the vendored wasm). Zellij
+  # then never fetches plugins at runtime, so it works offline and inside
+  # fornix's default-deny sandbox. Used by both `znv` and the web config.
+  zellijConfigPatched = pkgs.runCommand "nixbox-zellij-config" { } ''
+    cp -r ${zellijConfig} "$out"
+    chmod -R +w "$out"
+    rm -rf "$out/plugins"
+    f="file:${zellijPlugins}"
+    find "$out" -name '*.kdl' -print0 | xargs -0 sed -i \
+      -e "s|https://github.com/fresh2dev/zellij-autolock/releases/latest/download/zellij-autolock.wasm|$f/autolock.wasm|g" \
+      -e "s|https://github.com/KiryuuLight/zellij-attention/releases/latest/download/zellij-attention.wasm|$f/attention.wasm|g" \
+      -e "s|https://github.com/yaroslavborbat/zellij-bookmarks/releases/latest/download/zellij-bookmarks.wasm|$f/bookmarks.wasm|g" \
+      -e "s|https://github.com/dj95/zjstatus/releases/latest/download/zjstatus.wasm|$f/zjstatus.wasm|g"
+  '';
 
   # Treesitter grammars provided from Nix (mirrors ~/.dotfiles/nvim/default.nix).
   treesitterGrammars = pkgs.vimPlugins.nvim-treesitter.withAllGrammars.dependencies;
@@ -66,7 +83,7 @@ let
 
   # `znv` = zellij with the nvim layout (mirrors the dotfiles wrapper).
   znv = pkgs.writeShellScriptBin "znv" ''
-    exec ${zellij}/bin/zellij --config-dir "${zellijConfig}" --layout nvim "$@"
+    exec ${zellij}/bin/zellij --config-dir "${zellijConfigPatched}" --layout nvim "$@"
   '';
 
   # Web-enabled zellij config *file*. Two things matter (learned from
@@ -78,12 +95,12 @@ let
   # `layout_dir` points back at the vendored layouts so `default_layout "nvim"`
   # still resolves.
   zellijWebConfig = pkgs.runCommand "nixbox-zellij-web.kdl" { } ''
-    cp ${zellijConfig}/config.kdl "$out"
+    cp ${zellijConfigPatched}/config.kdl "$out"
     chmod +w "$out"
     cat >> "$out" <<KDL
 
 // nixbox: web server (generated)
-layout_dir "${zellijConfig}/layouts"
+layout_dir "${zellijConfigPatched}/layouts"
 web_server true
 web_server_ip "${cfg.bind}"
 web_server_port ${toString cfg.webPort}
@@ -152,11 +169,21 @@ in
     env.EDITOR = "nvim";
 
     # Launch the terminal interface: a zellij web server bound to `bind:webPort`,
-    # using the vendored zellij config (default_layout "nvim" -> opens neovim).
+    # using the patched zellij config (default_layout "nvim" -> opens neovim).
+    # Bootstraps a web login token on first run (sentinel on the data dir, so a
+    # persisted volume gets exactly one token), then starts the server.
     scripts.nixbox-web.exec = ''
-      set -euo pipefail
+      set -uo pipefail
+      tokmark="''${XDG_DATA_HOME:-$HOME/.local/share}/nixbox/web-token-created"
+      if [ ! -f "$tokmark" ]; then
+        echo "nixbox: no login token yet — creating one (shown once):"
+        if ${zellij}/bin/zellij --config "${zellijWebConfig}" web --create-token; then
+          mkdir -p "$(dirname "$tokmark")" && touch "$tokmark"
+        else
+          echo "nixbox: token creation failed; create one later with 'nixbox-token'"
+        fi
+      fi
       echo "nixbox: starting zellij web on ${cfg.bind}:${toString cfg.webPort}"
-      echo "nixbox: create a login token with 'nixbox-token' if you have not yet"
       exec ${zellij}/bin/zellij --config "${zellijWebConfig}" web
     '';
 
@@ -183,12 +210,22 @@ in
       echo "nixbox: preseed complete"
     '';
 
-    # Run the zellij web server as a managed process (used by `devenv up` and the
+    # Container/process entrypoint: warm plugins once (best-effort — needs
+    # network the first time; harmless if already seeded or offline), then start
+    # the web server. With the data dir on a persisted volume the seed/token
+    # work happens exactly once across container restarts.
+    scripts.nixbox-start.exec = ''
+      set -uo pipefail
+      nixbox-preseed || echo "nixbox: preseed skipped (continuing — run 'nixbox-preseed' with network to warm plugins)"
+      exec nixbox-web
+    '';
+
+    # Run the full entrypoint as a managed process (used by `devenv up` and the
     # container image).
-    processes.nixbox.exec = "nixbox-web";
+    processes.nixbox.exec = "nixbox-start";
 
     enterShell = ''
-      echo "nixbox ready — 'nixbox-web' starts the terminal interface; 'nixbox-preseed' warms neovim plugins."
+      echo "nixbox ready — 'nixbox-start' (preseed + web) is the entrypoint; 'nixbox-web' / 'nixbox-preseed' / 'nixbox-token' available individually."
     '';
     })
 

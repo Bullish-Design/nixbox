@@ -10,3 +10,6 @@ devenv.local.nix
 .vscode/
 *.log
 .DS_Store
+
+# example/runtime preseed data
+.nixbox/
