@@ -1,0 +1,40 @@
+layout {
+    pane size=1 borderless=true {
+        plugin location="https://github.com/dj95/zjstatus/releases/latest/download/zjstatus.wasm" {
+            // Kanagawa Dragon palette
+            color_bg      "#181616"
+            color_surface "#282727"
+            color_overlay "#393836"
+            color_subtle  "#625e5a"
+            color_fg      "#c5c9c5"
+            color_blue    "#8ba4b0"
+            color_violet  "#a292a3"
+            color_red     "#c4746e"
+            color_green   "#87a987"
+            color_yellow  "#c4b28a"
+            color_cyan    "#8ea4a2"
+            color_ash     "#737c73"
+
+            format_left   "{mode}#[bg=$bg,fg=$ash,bold]  {session}  {tabs}"
+            format_right  ""
+            format_space  "#[bg=$bg]"
+
+            hide_frame_for_single_pane "true"
+
+            mode_normal        "#[bg=$green,fg=$bg,bold] SB #[bg=$bg,fg=$green]"
+            mode_locked        "#[bg=$red,fg=$bg,bold] LK #[bg=$bg,fg=$red]"
+            mode_resize        "#[bg=$yellow,fg=$bg,bold] RZ #[bg=$bg,fg=$yellow]"
+            mode_pane          "#[bg=$cyan,fg=$bg,bold] PN #[bg=$bg,fg=$cyan]"
+            mode_tab           "#[bg=$yellow,fg=$bg,bold] TB #[bg=$bg,fg=$yellow]"
+            mode_scroll        "#[bg=$cyan,fg=$bg,bold] SC #[bg=$bg,fg=$cyan]"
+            mode_rename_tab    "#[bg=$yellow,fg=$bg,bold] RT #[bg=$bg,fg=$yellow]"
+            mode_rename_pane   "#[bg=$cyan,fg=$bg,bold] RP #[bg=$bg,fg=$cyan]"
+            mode_session       "#[bg=$violet,fg=$bg,bold] SS #[bg=$bg,fg=$violet]"
+
+            tab_normal   "#[bg=$surface,fg=$subtle] {name} #[bg=$bg,fg=$surface]"
+            tab_active   "#[bg=$blue,fg=$bg,bold] {name} #[bg=$bg,fg=$blue]"
+            tab_separator "#[bg=$bg,fg=$surface]│"
+        }
+    }
+    pane
+}

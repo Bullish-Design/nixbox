@@ -1,0 +1,56 @@
+layout {
+    pane size=1 borderless=true {
+        plugin location="https://github.com/dj95/zjstatus/releases/latest/download/zjstatus.wasm" {
+            // Kanagawa palette
+            color_bg      "#1F1F28"
+            color_surface "#2A2A37"
+            color_overlay "#363646"
+            color_subtle  "#727169"
+            color_fg      "#DCD7BA"
+            color_red     "#C34043"
+            color_green   "#76946A"
+            color_blue    "#7E9CD8"
+            color_yellow  "#DCA561"
+            color_violet  "#957FB8"
+            color_cyan    "#6A9589"
+            color_orange  "#FFA066"
+
+            format_left   "{mode}#[bg=$bg,fg=$subtle,bold]  {session}  {tabs}"
+            format_right  "{datetime}"
+            format_space  "#[bg=$bg]"
+
+            hide_frame_for_single_pane "true"
+
+            mode_normal        "#[bg=$green,fg=$bg,bold] NOR #[bg=$bg,fg=$green]"
+            mode_locked        "#[bg=$red,fg=$bg,bold] LCK #[bg=$bg,fg=$red]"
+            mode_resize        "#[bg=$yellow,fg=$bg,bold] RES #[bg=$bg,fg=$yellow]"
+            mode_pane          "#[bg=$blue,fg=$bg,bold] PAN #[bg=$bg,fg=$blue]"
+            mode_tab           "#[bg=$yellow,fg=$bg,bold] TAB #[bg=$bg,fg=$yellow]"
+            mode_scroll        "#[bg=$cyan,fg=$bg,bold] SCR #[bg=$bg,fg=$cyan]"
+            mode_enter_search  "#[bg=$violet,fg=$bg,bold]  /  #[bg=$bg,fg=$violet]"
+            mode_search        "#[bg=$violet,fg=$bg,bold]  ?  #[bg=$bg,fg=$violet]"
+            mode_rename_tab    "#[bg=$yellow,fg=$bg,bold] RNT #[bg=$bg,fg=$yellow]"
+            mode_rename_pane   "#[bg=$blue,fg=$bg,bold] RNP #[bg=$bg,fg=$blue]"
+            mode_session       "#[bg=$blue,fg=$bg,bold] SES #[bg=$bg,fg=$blue]"
+            mode_move          "#[bg=$orange,fg=$bg,bold] MOV #[bg=$bg,fg=$orange]"
+            mode_prompt        "#[bg=$violet,fg=$bg,bold]  >  #[bg=$bg,fg=$violet]"
+            mode_tmux          "#[bg=$violet,fg=$bg,bold] TMX #[bg=$bg,fg=$violet]"
+
+            tab_normal            "#[bg=$surface,fg=$subtle] {name}{floating_indicator} #[bg=$bg,fg=$surface]"
+            tab_normal_fullscreen "#[bg=$surface,fg=$subtle] {name}{fullscreen_indicator} #[bg=$bg,fg=$surface]"
+            tab_normal_sync       "#[bg=$surface,fg=$subtle] {name}{sync_indicator} #[bg=$bg,fg=$surface]"
+            tab_active            "#[bg=$blue,fg=$bg,bold] {name}{floating_indicator} #[bg=$bg,fg=$blue]"
+            tab_active_fullscreen "#[bg=$blue,fg=$bg,bold] {name}{fullscreen_indicator} #[bg=$bg,fg=$blue]"
+            tab_active_sync       "#[bg=$blue,fg=$bg,bold] {name}{sync_indicator} #[bg=$bg,fg=$blue]"
+
+            tab_separator            "#[bg=$bg,fg=$surface]│"
+            tab_sync_indicator       " "
+            tab_fullscreen_indicator " 󰊓"
+            tab_floating_indicator   " 󰹙"
+
+            datetime        "#[bg=$bg,fg=$subtle,bold] {format} "
+            datetime_format "%H:%M"
+        }
+    }
+    pane command="nv" focus=true
+}

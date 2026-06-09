@@ -1,9 +1,23 @@
 # yaml-language-server: $schema=https://devenv.sh/devenv.schema.json
+#
+# Reference / dev environment for nixbox itself. The module
+# (modules/devenv.nix) is self-contained — it pins its own Neovim and Zellij —
+# so importing repos only need the two `devenv container build` inputs below if
+# they intend to build an image.
 inputs:
   nixpkgs:
     url: github:cachix/devenv-nixpkgs/rolling
-  fenix:
-    url: github:nix-community/fenix
+  # Required by `devenv container build`.
+  nix2container:
+    url: github:nlewo/nix2container
     inputs:
       nixpkgs:
         follows: nixpkgs
+  mk-shell-bin:
+    url: github:rrbutani/nix-mk-shell-bin
+    inputs:
+      nixpkgs:
+        follows: nixpkgs
+
+imports:
+  - ./modules/devenv.nix

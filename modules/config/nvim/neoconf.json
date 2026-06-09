@@ -1,0 +1,23 @@
+{
+  "project": {
+    "name": "",
+    "description": "",
+    "version": "0.1.0",
+    "paths": {
+      "root": "."
+    },
+    "loci": {
+      "path": ".loci",
+      "obsidian": {
+        "enabled": true,
+        "vault_directory": "",
+        "vault_project_root": "Projects",
+        "vault_project_name": "",
+        "link_name": "project_files"
+      }
+    },
+    "github": {
+      "repo": ""
+    }
+  }
+}
