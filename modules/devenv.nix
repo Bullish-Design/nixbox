@@ -118,6 +118,23 @@ web_server_port ${toString cfg.webPort}
 KDL
   '';
 
+  # Pre-granted zellij plugin permissions, keyed by the (stable) vendored plugin
+  # store paths. Dropped into a demo's XDG_CACHE so the web session manager and
+  # nvim layout load without "Allow? (y/n)" prompts — needed for deterministic
+  # headless Playwright capture.
+  zellijPermissions = pkgs.writeText "nixbox-zellij-permissions.kdl" (
+    lib.concatMapStrings
+      (w: ''
+        "${zellijPlugins}/${w}" {
+            ReadApplicationState
+            ChangeApplicationState
+            ReadCliPipes
+            MessageAndLaunchOtherPlugins
+        }
+      '')
+      [ "attention.wasm" "autolock.wasm" "zjstatus.wasm" "bookmarks.wasm" ]
+  );
+
   # Optional zelligate manifest interop (same JSON shape as
   # zelligate/modules/devenv.nix) — only emitted when `name` is set.
   manifestJson = builtins.toJSON {
@@ -200,6 +217,11 @@ in
         description = "Extra arguments passed to `tailscale up`.";
       };
     };
+
+    playwright.enable = lib.mkEnableOption ''
+      the Playwright demo/CI addon: headless-browser capture of the web terminal
+      into GIFs (`nixbox-demo`). Pulls in nodejs + playwright + chromium + ffmpeg
+    '';
   };
 
   config = lib.mkMerge [
@@ -270,8 +292,79 @@ in
     '';
 
     # Run the full entrypoint as a managed process (used by `devenv up` and the
-    # container image).
-    processes.nixbox.exec = "nixbox-start";
+    # container image). Omitted under `devenv test` so it doesn't race the
+    # self-contained web server that nixbox-selfcheck starts.
+    processes = lib.optionalAttrs (!config.devenv.isTesting) {
+      nixbox.exec = "nixbox-start";
+    };
+
+    # Self-contained verification used by CI (`devenv shell nixbox-selfcheck`) and
+    # by `devenv test` (via enterTest). Static invariants + a LIVE check that the
+    # zellij web server actually binds and speaks HTTP — the regression that the
+    # "started but never bound" bug would have slipped past. No network needed:
+    # plugins are vendored as file: paths and nvim is only version-checked here.
+    scripts.nixbox-selfcheck.exec = ''
+      set -uo pipefail
+      fails=0
+      pass(){ echo "  PASS $*"; }
+      fail(){ echo "  FAIL $*"; fails=$((fails + 1)); }
+      port=${toString cfg.webPort}
+
+      echo "== nixbox selfcheck =="
+      echo "[1] commands resolve"
+      for c in nvim nv znv zellij nixbox-web nixbox-token nixbox-preseed nixbox-start; do
+        command -v "$c" >/dev/null 2>&1 && pass "$c" || fail "$c missing"
+      done
+
+      echo "[2] neovim >= 0.12 (vim.pack)"
+      v=$(${nvimWrapper}/bin/nvim --version | head -1 | grep -oE '[0-9]+\.[0-9]+' | head -1)
+      if [ "$(printf '0.12\n%s\n' "$v" | sort -V | head -1)" = "0.12" ]; then pass "nvim $v"; else fail "nvim $v < 0.12"; fi
+
+      echo "[3] zellij web config is offline (file: plugins, no https)"
+      if grep -q 'file:' "${zellijWebConfig}" && ! grep -q 'https://' "${zellijWebConfig}"; then
+        pass "plugin URLs rewritten to file:"
+      else
+        fail "plugin URLs not rewritten"
+      fi
+      n=$(ls "${zellijPlugins}"/*.wasm 2>/dev/null | wc -l)
+      if [ "''${n:-0}" -ge 4 ]; then pass "$n vendored wasm present"; else fail "only ''${n:-0} wasm vendored"; fi
+
+      echo "[4] live: zellij web binds and serves on :$port"
+      home=$(mktemp -d)
+      export HOME="$home" XDG_DATA_HOME="$home/data" XDG_CACHE_HOME="$home/cache"
+      mkdir -p "$XDG_DATA_HOME" "$XDG_CACHE_HOME"
+      # setsid -> own process group, so cleanup can reap the whole tree (the
+      # nixbox-web wrapper exec's zellij as a child, so killing $! alone orphans
+      # the server).
+      setsid nixbox-web >"$home/web.log" 2>&1 &
+      wpid=$!
+      cleanup_web() {
+        ${zellij}/bin/zellij --config "${zellijWebConfig}" web --stop >/dev/null 2>&1 || true
+        kill -TERM -"$wpid" 2>/dev/null || kill "$wpid" 2>/dev/null || true
+        wait "$wpid" 2>/dev/null || true
+      }
+      trap cleanup_web EXIT
+      bound=""
+      for _ in $(seq 1 30); do
+        if (exec 3<>/dev/tcp/127.0.0.1/$port) 2>/dev/null; then bound=1; break; fi
+        sleep 1
+      done
+      if [ -n "$bound" ]; then
+        pass "port $port bound (server is listening)"
+        resp=$( { exec 3<>/dev/tcp/127.0.0.1/$port; printf 'GET / HTTP/1.0\r\nHost: localhost\r\n\r\n' >&3; head -1 <&3; exec 3>&- 3<&-; } 2>/dev/null || true)
+        case "$resp" in
+          HTTP/*\ [23]*) pass "web responds: $(echo "$resp" | tr -d '\r')" ;;
+          *) fail "unexpected web response: '$(echo "$resp" | tr -d '\r')'" ;;
+        esac
+        if [ -f "$XDG_DATA_HOME/nixbox/web-token-created" ]; then pass "login token bootstrapped"; else fail "no token sentinel"; fi
+      else
+        fail "web server never bound on :$port"; tail -5 "$home/web.log" 2>/dev/null || true
+      fi
+      cleanup_web; trap - EXIT
+
+      echo
+      if [ "$fails" -eq 0 ]; then echo "nixbox selfcheck: ALL PASS"; else echo "nixbox selfcheck: $fails FAILURE(S)"; exit 1; fi
+    '';
 
     enterShell = ''
       echo "nixbox ready — 'nixbox-start' (preseed + web) is the entrypoint; 'nixbox-web' / 'nixbox-preseed' / 'nixbox-token' available individually."
@@ -323,6 +416,71 @@ JSON
 
         echo "nixbox: ${if cfg.tailscale.funnel then "funnel" else "serve"} -> http://127.0.0.1:${toString cfg.webPort}"
         "$ts" --socket="$sock" ${if cfg.tailscale.funnel then "funnel" else "serve"} --bg ${toString cfg.webPort}
+      '';
+    })
+
+    # Optional Playwright addon: capture the live web terminal into GIFs.
+    # `nixbox-demo <name> [fixtureDir]` boots the web server (plugin permissions
+    # pre-granted), drives a headless chromium through the session wizard into
+    # nvim, records video, and renders a GIF. DEMO_STEPS (JSON) customises the
+    # in-nvim scenario; see modules/playwright/demo.cjs.
+    (lib.mkIf (cfg.enable && cfg.playwright.enable) {
+      packages = [ pkgs.nodejs pkgs.playwright-test pkgs.ffmpeg ];
+
+      # Playwright env (only present when the addon is enabled), in the devenv
+      # `env` block for discoverability — same idiom as the browsee project. The
+      # nix-provided browsers are used as-is; host-requirement validation is
+      # skipped because the browsers are already the patched Nix builds.
+      env = {
+        PLAYWRIGHT_BROWSERS_PATH = "${pkgs.playwright-driver.browsers}";
+        PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS = "true";
+      };
+
+      scripts.nixbox-demo.exec = ''
+        set -uo pipefail
+        # NODE_PATH lets the vendored CommonJS driver `require('@playwright/test')`
+        # from the Nix package (scoped to this script so the dev shell's node
+        # resolution is untouched).
+        export NODE_PATH="${pkgs.playwright-test}/lib/node_modules"
+        node=${pkgs.nodejs}/bin/node
+        ffmpeg=${pkgs.ffmpeg}/bin/ffmpeg
+        port=${toString cfg.webPort}
+
+        name="''${1:-demo}"
+        fixture="''${2:-$PWD}"
+        outdir="''${DEMO_OUTDIR:-''${DEVENV_ROOT:-$PWD}/demos}"
+        state="''${DEMO_STATE:-''${DEVENV_ROOT:-$PWD}/.nixbox/demo-home}"
+        mkdir -p "$outdir" "$state/data" "$state/cache/zellij"
+
+        export HOME="$state" XDG_DATA_HOME="$state/data" XDG_CACHE_HOME="$state/cache"
+        # Pre-grant plugin permissions so the headless session loads prompt-free.
+        cp -f "${zellijPermissions}" "$XDG_CACHE_HOME/zellij/permissions.kdl"
+
+        echo "nixbox-demo: warming neovim plugins (first run only)…"
+        nixbox-preseed || echo "nixbox-demo: preseed failed — nvim may show the install screen"
+
+        tok=$(nixbox-token 2>&1 | grep -oE '[0-9a-f]{8}-[0-9a-f-]+' | head -1)
+        [ -n "$tok" ] || { echo "nixbox-demo: could not create a web token"; exit 1; }
+
+        work=$(mktemp -d)
+        setsid bash -c "cd \"$fixture\" && exec nixbox-web" >"$work/web.log" 2>&1 &
+        webpid=$!
+        cleanup(){
+          ${zellij}/bin/zellij --config "${zellijWebConfig}" web --stop >/dev/null 2>&1 || true
+          kill -TERM -"$webpid" 2>/dev/null || kill "$webpid" 2>/dev/null || true
+        }
+        trap cleanup EXIT
+        for _ in $(seq 1 30); do (exec 3<>/dev/tcp/127.0.0.1/$port) 2>/dev/null && break; sleep 1; done
+
+        echo "nixbox-demo: capturing '$name' (fixture: $fixture)…"
+        NIXBOX_TOKEN="$tok" NIXBOX_WEB_PORT="$port" DEMO_OUT="$work" DEMO_SESSION="$name" \
+          "$node" "${./playwright/demo.cjs}" || { echo "nixbox-demo: capture failed"; tail -5 "$work/web.log"; exit 1; }
+
+        webm=$(ls "$work"/*.webm 2>/dev/null | head -1)
+        [ -n "$webm" ] || { echo "nixbox-demo: no video recorded"; exit 1; }
+        "$ffmpeg" -y -i "$webm" -vf "fps=12,scale=820:-1:flags=lanczos,palettegen=stats_mode=diff" "$work/pal.png" >/dev/null 2>&1
+        "$ffmpeg" -y -i "$webm" -i "$work/pal.png" -lavfi "fps=12,scale=820:-1:flags=lanczos[x];[x][1:v]paletteuse=dither=bayer" "$outdir/$name.gif" >/dev/null 2>&1
+        echo "nixbox-demo: wrote $outdir/$name.gif ($(du -h "$outdir/$name.gif" 2>/dev/null | cut -f1))"
       '';
     })
   ];

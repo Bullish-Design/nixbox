@@ -167,8 +167,47 @@ scripts/sync-config.sh            # re-vendor nvim/ + zellij/ (preserves plugins
 | `nixbox-token` | Create a zellij web login token. |
 | `nixbox-preseed` | Clone `vim.pack` plugins + treesitter (one-off, needs network). |
 | `nixbox-tailscale` | (when `tailscale.enable`) bring up tailscaled + `tailscale serve`. |
+| `nixbox-selfcheck` | Verify the setup: static invariants + a live "web server binds & serves HTTP" check. |
 | `nvim` / `nv` | Neovim with the vendored config. |
 | `znv` | Zellij with the `nvim` layout. |
+
+## Demos (Playwright addon)
+
+An opt-in dev addon (`nixbox.playwright.enable`) drives the *live* web terminal
+in a headless browser and records GIFs — end-to-end proof the whole stack works
+in a real browser (token auth → zellij web session → neovim editing a file):
+
+```bash
+cd demos
+devenv shell -- ./run.sh        # writes demos/output/*.gif
+```
+
+It pre-grants the zellij plugin permissions, warms neovim's plugins, then drives
+chromium through the session wizard into the `nvim` layout and captures the
+result (`modules/playwright/demo.cjs`; customise scenarios with `DEMO_STEPS`).
+The addon is kept in a **separate `demos/` environment** so the lean runtime /
+container never pulls in node + chromium. CI runs it and uploads the GIFs as
+artifacts. See [`demos/`](demos) and the fixtures in
+[`tests/fixtures`](tests/fixtures).
+
+## Testing / CI
+
+`nixbox-selfcheck` is a self-contained verification you can run anywhere
+(`devenv shell -- nixbox-selfcheck`) or via `devenv test` (wired through
+`enterTest`). It checks:
+
+1. all commands resolve (`nvim`, `znv`, `nixbox-web`, …);
+2. Neovim is ≥ 0.12 (vim.pack-capable);
+3. the zellij web config is offline — plugin URLs rewritten to `file:`, vendored
+   `.wasm` present;
+4. **live** — it actually starts the zellij web server, confirms the port binds
+   and returns HTTP, and that a login token is bootstrapped, then cleans up.
+
+Step 4 is the important one: the "web server printed *started* but never bound"
+bug is only catchable by really connecting to it. It needs no network (plugins
+are vendored) and leaves no stray server. The GitHub Actions workflow
+(`.github/workflows/ci.yml`) runs the self-check and a `devenv container build`
+on every push.
 
 ## Scope: the isolation model
 

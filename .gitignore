@@ -13,3 +13,12 @@ devenv.local.nix
 
 # example/runtime preseed data
 .nixbox/
+
+# local agent state
+.claude/
+
+# playwright demo working dirs + generated output
+demos/.nixbox/
+demos/.nixbox-test/
+demos/output/
+demos/*.gif

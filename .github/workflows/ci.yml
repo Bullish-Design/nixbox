@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: cachix/install-nix-action@v30
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+            extra-substituters = https://devenv.cachix.org
+            extra-trusted-public-keys = devenv.cachix.org-1:w1cLUi8dv3hnoSPGAuibQv+f9TZLr6cv/Hm9XgU50cw=
+
+      - name: Install devenv
+        run: nix profile install nixpkgs#devenv
+
+      # Live verification: builds the env, then runs nixbox-selfcheck — static
+      # invariants + actually starting the zellij web server and confirming it
+      # binds and speaks HTTP (the regression the "started but never bound" bug
+      # would have slipped past). `devenv test` runs the same check via enterTest.
+      - name: Live self-check
+        run: devenv shell -- nixbox-selfcheck
+
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: cachix/install-nix-action@v30
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+            extra-substituters = https://devenv.cachix.org
+            extra-trusted-public-keys = devenv.cachix.org-1:w1cLUi8dv3hnoSPGAuibQv+f9TZLr6cv/Hm9XgU50cw=
+
+      - name: Install devenv
+        run: nix profile install nixpkgs#devenv
+
+      # Build the deployable image (also exercises the zellij config / vendored
+      # plugin derivations end-to-end).
+      - name: devenv container build nixbox
+        run: devenv container build nixbox
+
+  demos:
+    # Heavy (chromium + neovim plugin warm-up); the end-to-end proof that the web
+    # terminal really renders nvim in a browser. Uploads the GIFs as artifacts.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: cachix/install-nix-action@v30
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+            extra-substituters = https://devenv.cachix.org
+            extra-trusted-public-keys = devenv.cachix.org-1:w1cLUi8dv3hnoSPGAuibQv+f9TZLr6cv/Hm9XgU50cw=
+
+      - name: Install devenv
+        run: nix profile install nixpkgs#devenv
+
+      - name: Capture demo GIFs
+        working-directory: demos
+        run: devenv shell -- ./run.sh
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nixbox-demo-gifs
+          path: demos/output/*.gif
+          if-no-files-found: warn
