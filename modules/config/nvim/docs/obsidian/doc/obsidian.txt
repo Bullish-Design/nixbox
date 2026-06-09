@@ -1,0 +1,267 @@
+*obsidian*                 a plugin for writing and navigating an Obsidian vault
+
+A community fork of epwalsh/obsidian.nvim {2}, neovim plugin for Obsidian {1}
+vaults.
+
+Built for people who love the concept of Obsidian -- a simple, markdown-based
+notes app -- but love Neovim too much to stand typing characters into anything
+else.
+
+This plugin is not meant to replace Obsidian, but to complement it. The Obsidian
+app comes with a mobile app and has a lot of functionality that's not feasible
+to implement in Neovim, such as the graph explorer view. That said, this plugin
+stands on its own as well. You don't necessarily need to use it alongside the
+Obsidian app.
+
+--------------------------------------------------------------------------------
+🍴 About the fork
+
+The original project has not been actively maintained for quite a while and with
+bugs, issues and pull requests piling up, people from the community decided to
+fork and maintain the project.
+
+- Discussions are happening in GitHub Discussions {3}
+- Sponsor the project at Open Collective {4}
+- To migrate from original repo or older releases, see Breaking changes {5}
+- See the documentation:
+  - obsidian.nvim wiki {6} for documentation of the latest release.
+  - `:Obsidian help` or `:Obsidian helpgrep` for documentation update to date
+    with your current installation.
+  - `:h obsidian-api` for API reference.
+
+--------------------------------------------------------------------------------
+⭐ Features
+
+▶️ Completion: Ultra-fast, asynchronous autocompletion for note references and
+tags via nvim-cmp {8} or blink.cmp {7} (triggered by typing `[[` for wiki and
+markdown links, `#` for tags)
+
+🏃 Navigation: Navigate throughout your vault via links, backlinks, tags and
+etc.
+
+📷 Images: Paste images into notes.
+
+📈 Status: See note status in footer like obsidian app.
+
+Keymaps ~
+
+- `smart_action`, bind to `<CR>` will:
+  - If cursor is on a link, follow the link.
+  - If cursor is on a tag, show all notes with that tag in a picker.
+  - If cursor is on a checkbox, toggle the checkbox, see Checkbox.create_new {9}
+    .
+  - If cursor is on a heading, cycle the fold of that heading, see Folding {10}
+    to set this up.
+- `nav_link`, bind to `[o` and `]o` will navigate cursor to next valid link in
+  the buffer.
+
+For other available actions and remapping default ones, see Keymaps {11}
+
+Commands ~
+
+There's one entry point user command for this plugin: `Obsidian`
+
+- `Obsidian<CR>` (`<enter>`) to select sub commands.
+- `Obsidian <Tab>` to get completion for sub commands.
+- Sub commands are context sensitive, meaning some actions will only appear
+  when:
+  - you are in a note.
+  - you are in visual mode.
+- See Commands {12} for more info.
+
+Top level commands ~
+
+- `:Obsidian check` - check for common issues in your vault and plugin setup
+- `:Obsidian dailies [OFFSET ...]` - open a picker list of daily notes
+  - `:Obsidian dailies -2 1` to list daily notes from 2 days ago until tomorrow
+- `:Obsidian help` - find files in the help wiki
+- `:Obsidian helpgrep` - grep files in the help wiki
+- `:Obsidian new [TITLE]` - create a new note
+- `:Obsidian open [QUERY]` - open a note in the Obsidian app
+  - query is used to resolve the note to open by ID, path, or alias, else use current note
+- `:Obsidian today [OFFSET_OR_DATE]` - open/create a new daily note
+  - offset is in days, e.g. use `:Obsidian today -1` to go to yesterday's note.
+  - you can also give an argument like `3-1`/`2026-3-1`, it will parse common date formats and open daily for that specific date.
+  - Unlike `:Obsidian yesterday` and `:Obsidian tomorrow` this command does not differentiate between weekdays and weekends
+- `:Obsidian tomorrow` - open/create the daily note for the next working day
+- `:Obsidian yesterday` - open/create the daily note for the previous working day
+- `:Obsidian new_from_template [TITLE] [TEMPLATE]` - create a new note with `TITLE` from a template with the name `TEMPLATE`
+  - both arguments are optional. If not given, the template will be selected from a list using your preferred picker
+- `:Obsidian quick_switch` - switch to another note in your vault, searching by its name with a picker
+- `:Obsidian search [QUERY]` - search for (or create) notes in your vault using `ripgrep` with your preferred picker
+- `:Obsidian tags [TAG ...]` - get a picker list of all occurrences of the given tags
+- `:Obsidian unique_note [TITLE]` - create a new note with a unique, timestamp-based ID
+- `:Obsidian workspace [NAME]` - switch to another workspace
+
+Note commands ~
+
+- `:Obsidian backlinks` - get a picker list of references to the current note
+  - `grr`/`vim.lsp.buf.references` to see references in quickfix list
+- `:Obsidian follow_link [STRATEGY]` - follow a note reference under the cursor
+  - available strategies: `vsplit, hsplit, vsplit_force, hsplit_force`
+- `:Obsidian toc` - get a picker list of table of contents for current note
+- `:Obsidian template [NAME]` - insert a template from the templates folder, selecting from a list using your preferred picker
+  - Template {13}
+- `:Obsidian links` - get a picker list of all links in current note
+- `:Obsidian paste_img [IMGNAME]` - paste an image from the clipboard into the note at the cursor position by saving it to the vault and adding a markdown image link
+  - Images {14}
+- `:Obsidian rename [NEWNAME]` - rename the note of the current buffer or reference under the cursor, updating all backlinks across the vault
+  - runs `:wa` before renaming, and loads every note with backlinks into your buffer-list
+  - after renaming you need to do `:wa` again for changes to take effect
+  - alternatively, call `vim.lsp.buf.rename` or use `grn`
+- `:Obsidian toggle_checkbox` - cycle through checkbox options
+
+Visual mode commands ~
+
+- `:Obsidian extract_note [TITLE]` - extract the visually selected text into a new note and link to it
+- `:Obsidian link [QUERY]` - link an inline visual selection of text to a note
+  - query will be used to resolve the note by ID, path, or alias, else query is selected text
+- `:Obsidian link_new [TITLE]` - create a new note and link it to an inline visual selection of text
+  - if title is not given, selected text is used
+
+--------------------------------------------------------------------------------
+📝 Requirements
+
+System requirements ~
+
+- Neovim >= 0.10.0
+- For completion and search features: `ripgrep` {15}
+- Additional system dependencies:
+  - Windows WSL users need `wsl-open` {16} for `:Obsidian open`.
+  - MacOS users need `pngpaste` {17} (`brew install pngpaste`) for
+    `:Obsidian paste_img`.
+  - Linux users need `xclip` (X11) or `wl-clipboard` (Wayland) for
+    `:Obsidian paste_img`.
+
+Plugin dependencies ~
+
+There's no required dependency, but there are a number of optional dependencies
+that enhance the obsidian.nvim experience.
+
+Completion:
+
+- blink.cmp {18}
+- nvim-cmp {19}
+
+Pickers:
+
+- telescope.nvim {20}
+- fzf-lua {21}
+- mini.pick {22}
+- snacks.picker {23}
+
+Image viewing:
+
+- snacks.image {24}
+- See Images {25} for configuration.
+
+--------------------------------------------------------------------------------
+📥 Installation
+
+▋  Warning
+▋ For stability you may want to use latest release, be aware that the README on
+▋ `main` may reference features that haven't been released yet.
+▋
+▋ So view the README on the tag for the latest release {26} instead of `main`.
+
+▋  Tip
+▋ To see your installation status, run `:checkhealth obsidian`
+▋
+▋ To try out or debug this plugin, run `nvim -u minimal.lua` to try in a clean
+▋ environment
+
+Using `lazy.nvim` {27} ~
+
+>lua
+	return {
+	  "obsidian-nvim/obsidian.nvim",
+	  version = "*", -- use latest release, remove to use latest commit
+	  ---@module 'obsidian'
+	  ---@type obsidian.config
+	  opts = {
+	    legacy_commands = false, -- this will be removed in the next major release
+	    workspaces = {
+	      {
+	        name = "personal",
+	        path = "~/vaults/personal",
+	      },
+	      {
+	        name = "work",
+	        path = "~/vaults/work",
+	      },
+	    },
+	  },
+	}
+<
+
+Using `rocks.nvim` {28} ~
+
+>vim
+	:Rocks install obsidian.nvim
+<
+
+Using `vim.pack` (nvim-0.12+) ~
+
+>lua
+	vim.pack.add {
+	  {
+	    src = "https://github.com/obsidian-nvim/obsidian.nvim",
+	    version = vim.version.range "*", -- use latest release, remove to use latest commit
+	  },
+	}
+<
+
+--------------------------------------------------------------------------------
+⚙️ Configuration
+
+To configure obsidian.nvim, pass your custom options that are different from
+default options {29} to `require"obsidian".setup()`.
+
+--------------------------------------------------------------------------------
+🤝 Contributing
+
+Please read the CONTRIBUTING {30} guide before submitting a pull request.
+
+--------------------------------------------------------------------------------
+❤️ Acknowledgement
+
+We would like to thank epwalsh {32} for creating this beautiful plugin. If
+you're feeling especially generous, he still appreciates some coffee funds! {31}
+.
+
+Links ~
+
+1: https://obsidian.md
+2: https://github.com/epwalsh/obsidian.nvim
+3: https://github.com/obsidian-nvim/obsidian.nvim/discussions/6
+4: https://opencollective.com/nvim-obsidian
+5: https://github.com/obsidian-nvim/obsidian.nvim/wiki/Breaking-Changes
+6: https://github.com/obsidian-nvim/obsidian.nvim/wiki
+7: https://github.com/Saghen/blink.cmp
+8: https://github.com/hrsh7th/nvim-cmp
+9: https://github.com/obsidian-nvim/obsidian.nvim/wiki/Checkbox#create-new
+10: https://github.com/obsidian-nvim/obsidian.nvim/wiki/Folding
+11: https://github.com/obsidian-nvim/obsidian.nvim/wiki/Keymaps
+12: https://github.com/obsidian-nvim/obsidian.nvim/wiki/Commands
+13: https://github.com/obsidian-nvim/obsidian.nvim/wiki/Template
+14: https://github.com/obsidian-nvim/obsidian.nvim/wiki/Images#change-image-save-location
+15: https://github.com/BurntSushi/ripgrep?tab=readme-ov-file#installation
+16: https://gitlab.com/4U6U57/wsl-open
+17: https://github.com/jcsalterego/pngpaste
+18: https://github.com/Saghen/blink.cmp
+19: https://github.com/hrsh7th/nvim-cmp
+20: https://github.com/nvim-telescope/telescope.nvim
+21: https://github.com/ibhagwan/fzf-lua
+22: https://github.com/echasnovski/mini.pick
+23: https://github.com/folke/snacks.nvim/blob/main/docs/picker.md
+24: https://github.com/folke/snacks.nvim/blob/main/docs/image.md
+25: https://github.com/obsidian-nvim/obsidian.nvim/wiki/Images
+26: https://github.com/obsidian-nvim/obsidian.nvim/releases
+27: https://github.com/folke/lazy.nvim
+28: https://github.com/nvim-neorocks/rocks.nvim
+29: https://github.com/obsidian-nvim/obsidian.nvim/blob/main/lua/obsidian/config/default.lua
+30: https://github.com/obsidian-nvim/obsidian.nvim/blob/main/CONTRIBUTING.md
+31: https://www.buymeacoffee.com/epwalsh
+32: https://github.com/epwalsh
+
+vim:ft=help:textwidth=80:tabstop=4:noexpandtab:

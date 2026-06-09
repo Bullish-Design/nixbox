@@ -1,0 +1,2 @@
+-- snacks.git / snacks.gh for browse actions and GitHub integration.
+-- Already enabled via snacks.setup(). No additional config needed.

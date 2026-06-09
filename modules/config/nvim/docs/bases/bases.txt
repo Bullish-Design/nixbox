@@ -1,0 +1,241 @@
+*bases.txt*    Obsidian Bases integration for Neovim
+
+Author: Eric Miller
+License: MIT
+
+==============================================================================
+CONTENTS                                                      *bases-contents*
+
+    1. Introduction ..................... |bases-introduction|
+    2. Installation ..................... |bases-installation|
+    3. API .............................. |bases-api|
+    4. UI Components .................... |bases-ui|
+    5. Examples ......................... |bases-examples|
+
+==============================================================================
+1. INTRODUCTION                                           *bases-introduction*
+
+bases.nvim provides Obsidian Bases integration for Neovim, allowing you to:
+- Parse `.base` YAML files
+- Filter and sort data using Bases expression syntax
+- Display data in table views
+- Integrate Bases views into your plugins
+
+For more information about Obsidian Bases:
+https://github.com/SkepticMystic/obsidian-bases
+
+==============================================================================
+2. INSTALLATION                                           *bases-installation*
+
+Using lazy.nvim: >lua
+    {
+      dir = "~/path/to/bases.nvim",
+      dependencies = {
+        "MunifTanjim/nui.nvim", -- Required for table views
+      },
+    }
+<
+
+==============================================================================
+3. API                                                               *bases-api*
+
+bases.parse_file({filepath})                            *bases.parse_file()*
+    Parse a single `.base` file.
+
+    Parameters: ~
+        {filepath}  (string) Path to .base file
+
+    Returns: ~
+        (table|nil, string|nil) Parsed data or nil and error message
+
+bases.scan_views({views_dir}, {opts})                    *bases.scan_views()*
+    Scan directory for all `.base` files.
+
+    Parameters: ~
+        {views_dir}  (string) Path to views directory
+        {opts}       (table|nil) Options:
+                     - view_type: Filter views by type
+
+    Returns: ~
+        (table, string|nil) View objects keyed by view_id
+
+bases.get_view({view_id}, {views_dir}, {opts})           *bases.get_view()*
+    Get a specific view by ID.
+
+    Parameters: ~
+        {view_id}    (string) View identifier (format: "file:viewname")
+        {views_dir}  (string) Path to views directory
+        {opts}       (table|nil) Options:
+                     - view_type: Filter views by type
+
+    Returns: ~
+        (table|nil, string|nil) View object or nil and error
+
+bases.evaluate({filter}, {data})                         *bases.evaluate()*
+    Evaluate filter expression against data object.
+
+    Parameters: ~
+        {filter}  (table) Bases filter specification
+        {data}    (table) Data object to test
+
+    Returns: ~
+        (boolean) True if data matches filter
+
+bases.query({opts})                                          *bases.query()*
+    Filter and sort data.
+
+    Parameters: ~
+        {opts}  (table) Options:
+                - data: (table) Array of data objects
+                - filter: (table|nil) Bases filter spec
+                - sort: (table|nil) Array of sort rules
+
+    Returns: ~
+        (table) Filtered and sorted data array
+
+==============================================================================
+4. UI COMPONENTS                                                   *bases-ui*
+
+bases.ui.table({opts})                                    *bases.ui.table()*
+    Show table view using nui.table.
+
+    Parameters: ~
+        {opts}  (table) Options:
+                - data: (table) Array of data objects
+                - view_spec: (table|nil) Bases view specification
+                - column_config: (table|nil) Column configurations
+                - on_select: (function|nil) Selection callback
+                - title: (string|nil) Window title
+
+    See |nui-table| for more details on nui.table.
+
+bases.ui.picker({opts})                                  *bases.ui.picker()*
+    Show view selector picker.
+
+    Parameters: ~
+        {opts}  (table) Options:
+                - views_dir: (string) Path to views directory
+                - view_type: (string|nil) Filter views by type
+                - on_select: (function) Selection callback
+                - prompt: (string|nil) Picker prompt
+                - backend: (string|nil) "snacks", "telescope", or nil
+
+------------------------------------------------------------------------------
+FLOATING WINDOW UTILITIES                                     *bases.ui.floats*
+
+bases.ui.floats.select({items}, {opts}, {on_select})  *bases.ui.floats.select()*
+    Create a selection menu in a floating window.
+
+    Parameters: ~
+        {items}      (table) Array of items to select from
+        {opts}       (table|nil) Options:
+                     - title: (string) Window title (default: "Select")
+                     - width: (number) Window width (default: 40)
+                     - max_height: (number) Max window height (default: 15)
+                     - format_item: (function) Item formatter
+        {on_select}  (function) Callback(idx, item) on selection
+
+    Returns: ~
+        (number|nil) Window ID or nil if no items
+
+    Keymaps: ~
+        q, <Esc>  - Close without selecting
+        <CR>      - Select item under cursor
+        1-9       - Quick select by number
+
+bases.ui.floats.input({prompt}, {opts}, {on_confirm})  *bases.ui.floats.input()*
+    Create an input prompt in a floating window.
+
+    Parameters: ~
+        {prompt}      (string) Prompt text to display
+        {opts}        (table|nil) Options:
+                      - default: (string) Default text value
+        {on_confirm}  (function) Callback(text) on confirm
+
+    Returns: ~
+        (number) Window ID
+
+    Keymaps: ~
+        <CR> (insert) - Confirm input
+        <Esc>         - Cancel
+
+bases.ui.floats.hover({content}, {opts})               *bases.ui.floats.hover()*
+    Display hover information near the cursor.
+
+    Parameters: ~
+        {content}  (string|table) Content to display (string or lines array)
+        {opts}     (table|nil) Options:
+                   - max_width: (number) Max window width (default: 80)
+                   - max_height: (number) Max window height (default: 20)
+                   - anchor: (string) Position anchor (default: "NE")
+                   - focusable: (boolean) Window focusable (default: false)
+
+    Returns: ~
+        (number|nil) Window ID or nil if no content
+
+    Keymaps: ~
+        q, <Esc> - Close hover
+
+bases.ui.floats.float_config({width}, {height}, {row}, {col}, {anchor})
+                                                   *bases.ui.floats.float_config()*
+    Create a float configuration for a specific position.
+
+    Parameters: ~
+        {width}   (number) Window width
+        {height}  (number) Window height
+        {row}     (number|nil) Row position (default: centered)
+        {col}     (number|nil) Column position (default: centered)
+        {anchor}  (string|nil) Anchor point (default: "NW")
+
+    Returns: ~
+        (table) Float window configuration
+
+bases.ui.floats.cursor_float_config({width}, {height}, {offset_row}, {offset_col})
+                                            *bases.ui.floats.cursor_float_config()*
+    Create a cursor-relative float configuration.
+
+    Parameters: ~
+        {width}       (number) Window width
+        {height}      (number) Window height
+        {offset_row}  (number|nil) Row offset from cursor (default: 1)
+        {offset_col}  (number|nil) Column offset from cursor (default: 0)
+
+    Returns: ~
+        (table) Float window configuration
+
+==============================================================================
+5. EXAMPLES                                                   *bases-examples*
+
+Parse a .base file: >lua
+    local bases = require("bases")
+    local data, err = bases.parse_file("~/vault/Views/tasks.base")
+<
+
+Filter and sort data: >lua
+    local results = bases.query({
+      data = tasks,
+      filter = {
+        ['and'] = {
+          'status == "open"',
+          'priority == "high"'
+        }
+      },
+      sort = {{ column = "due", direction = "ASC" }}
+    })
+<
+
+Show table view: >lua
+    bases.ui.table({
+      data = tasks,
+      view_spec = {
+        order = {"title", "status", "due"},
+        sort = {{ column = "due", direction = "ASC" }}
+      },
+      on_select = function(row)
+        vim.cmd("edit " .. row.path)
+      end
+    })
+<
+
+==============================================================================
+vim:tw=78:ts=8:ft=help:norl:

@@ -1,0 +1,1 @@
+{"status": "active", "id": "link-source-2", "updated_at": "2026-05-22T22:34:38Z", "goal": "", "created_at": "2026-05-22T22:34:38Z", "links": {"issues": [], "ideation": [], "urls": [], "tasks": ["link-target-2"], "projects": [], "architecture": [], "concept": [], "specs": [], "commands": []}, "kind": "feature", "tags": [], "title": "Link Source"}

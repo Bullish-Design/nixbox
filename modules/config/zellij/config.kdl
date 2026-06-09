@@ -1,0 +1,54 @@
+pane_frames false
+default_layout "nvim"
+show_startup_tips false
+theme "kanagawa"
+
+themes {
+    kanagawa {
+        bg "#2A2A37"
+        fg "#DCD7BA"
+        red "#C34043"
+        green "#76946A"
+        blue "#7E9CD8"
+        yellow "#DCA561"
+        magenta "#957FB8"
+        orange "#FFA066"
+        cyan "#6A9589"
+        black "#1F1F28"
+        white "#C8C093"
+    }
+}
+
+// autolock: lock to Zellij when nvim/fzf/etc are running
+plugins {
+    autolock location="https://github.com/fresh2dev/zellij-autolock/releases/latest/download/zellij-autolock.wasm" {
+        is_enabled true
+        triggers "nvim|vim|git|fzf|zoxide|atuin"
+        reaction_seconds "0.3"
+        print_to_log false
+    }
+}
+
+load_plugins {
+    autolock
+    // attention: pane activity notifications in tab bar
+    "https://github.com/KiryuuLight/zellij-attention/releases/latest/download/zellij-attention.wasm" {
+        enabled "true"
+        waiting_icon " "
+        completed_icon "󰄬 "
+    }
+}
+
+keybinds clear-defaults=false {
+    normal {
+        // Quake-style dropdown terminal toggle
+        bind "Alt `" { ToggleFloatingPanes; }
+        // Bookmarks
+        bind "Alt b" {
+            LaunchOrFocusPlugin "https://github.com/yaroslavborbat/zellij-bookmarks/releases/latest/download/zellij-bookmarks.wasm" {
+                floating true
+                cwd "$HOME/.config/zellij"
+            };
+        }
+    }
+}

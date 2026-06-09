@@ -1,82 +1,95 @@
-# Nixbox
+# nixbox
 
-Nixbox is a modular devenv.sh plugin that provides the Cairn agent workspace runtime.
+A personal **terminal-only interface** packaged as an importable
+[devenv.sh](https://devenv.sh) module: a vendored Neovim config running over a
+**Zellij web server**, reachable from a browser. Importable into any devenv repo,
+and buildable into a Docker image so each environment can run isolated and be
+reached over Tailscale.
 
-## Read this first (canonical docs)
+## Ecosystem
 
-1. **README.md** (this file): install + quickstart.
-2. **[CONCEPT.md](CONCEPT.md)**: philosophy and constraints.
-3. **[SPEC.md](SPEC.md)**: current architecture and runtime contracts.
+nixbox is the *environment* in a small stack of independent projects:
 
-If a topic appears in multiple places, `CONCEPT.md` and `SPEC.md` are authoritative.
+| Project | Role |
+|---|---|
+| **nixbox** (this repo) | The environment: Neovim + Zellij + tooling. Substrate-agnostic. |
+| **zelligate** | Access layer: Docker-first orchestrator serving per-repo Zellij web terminals over Tailscale. |
+| **fornix / devbox** | Isolation engine for autonomous agents (btrfs + srt sandboxes). Composes later; both speak devenv. |
+| **tyo3** | An example repo / interface-style reference. |
 
-## Installation
+## What's inside
 
-### 1) Import modules in `devenv.nix`
+- **Neovim** pinned to 0.12.x (for `vim.pack`), wrapped with the vendored config
+  in [`modules/config/nvim`](modules/config/nvim) and the LSP servers it expects.
+- **Zellij** pinned to match, with the vendored config in
+  [`modules/config/zellij`](modules/config/zellij) — `default_layout "nvim"`, so a
+  new web session opens straight into Neovim.
+- A `zellij web` server as the entrypoint (`nixbox-web`).
+
+The module is **self-contained**: it pins its own Neovim and Zellij via
+`fetchTarball`, so an importing repo doesn't need to declare those inputs.
+
+## Use it in another repo
+
+`devenv.yaml`:
+
+```yaml
+inputs:
+  nixbox:
+    url: path:../nixbox/modules   # or github:Bullish-Design/nixbox?dir=modules
+    flake: false
+imports:
+  - nixbox
+```
+
+`devenv.nix`:
 
 ```nix
-{ inputs, ... }:
 {
-  imports = [
-    ./nixbox/modules/agentfs.nix
-    ./nixbox/modules/cairn.nix
-  ];
+  nixbox.enable = true;
+  # nixbox.webPort = 8920;       # zellij web port (default)
+  # nixbox.bind = "127.0.0.1";   # keep loopback; front it externally
+  # nixbox.name = "my-repo";     # optional: expose a zelligate manifest
 }
 ```
 
-### 2) Enter shell and verify AgentFS
+Then:
 
 ```bash
 devenv shell
-agentfs-info
+nixbox-preseed     # one-off: clone neovim plugins (needs network)
+nixbox-token       # one-off: create a web login token
+nixbox-web         # start the zellij web server
 ```
 
-### 3) Start Cairn orchestrator
+Open `http://127.0.0.1:8920` (or front it via zelligate/Tailscale).
+
+## Build the container image
 
 ```bash
-cairn up
+devenv container build nixbox      # produces a Docker image
+# run it; entrypoint is `nixbox-web` (processes.nixbox)
 ```
 
-## Quickstart
+`bind` stays on loopback by default; public exposure / TLS is handled by an
+external forwarder (zelligate's socat, or Tailscale), matching zelligate's
+networking model. Binding `zellij web` to a non-loopback address directly
+requires `--cert`/`--key`.
 
-### Queue work
+## Commands
 
-```bash
-cairn spawn "Add docstrings to public functions"
-```
+| Command | What it does |
+|---|---|
+| `nixbox-web` | Start the zellij web server (`bind:webPort`). |
+| `nixbox-token` | Create a zellij web login token. |
+| `nixbox-preseed` | Clone `vim.pack` plugins + treesitter (one-off, needs network). |
+| `nvim` / `nv` | Neovim with the vendored config. |
+| `znv` | Zellij with the `nvim` layout. |
 
-### Inspect
+## Notes & deferred work
 
-```bash
-cairn list-agents
-cairn status agent-<id>
-```
-
-### Resolve
-
-```bash
-cairn accept agent-<id>
-# or
-cairn reject agent-<id>
-```
-
-## Neovim plugin quick setup
-
-Point your plugin manager to `nixbox/cairn/nvim`.
-
-```lua
-{
-  dir = '~/path/to/nixbox/cairn/nvim',
-  config = function()
-    require('cairn').setup({
-      preview_same_location = true,
-    })
-  end,
-}
-```
-
-## Contributing
-
-- Workflow instructions: [AGENT.md](AGENT.md)
-- Skill runbooks: [`.agent/skills/`](.agent/skills)
-- Architecture and contracts: [CONCEPT.md](CONCEPT.md), [SPEC.md](SPEC.md)
+- **Plugin fetch:** the Neovim config uses `vim.pack`, which clones ~55 plugins at
+  runtime. `nixbox-preseed` warms them; without it, the first Neovim launch fetches
+  them (needs network + a writable data dir).
+- **Deferred:** multi-spawn / one-container-per-env orchestration, fornix-based
+  isolation, and baking Tailscale into the image — all out of scope for now.

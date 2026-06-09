@@ -1,0 +1,895 @@
+*md-render.jax*	Neovim 用 Markdown レンダリングエンジン
+
+Author: delphinus
+License: MIT
+
+==============================================================================
+目次							    *md-render-contents*
+
+はじめに						|md-render-introduction|
+必要要件						|md-render-requirements|
+インストール						|md-render-installation|
+マッピング						    |md-render-mappings|
+コマンド						    |md-render-commands|
+Telescope 連携						   |md-render-telescope|
+Snacks.nvim 連携					      |md-render-snacks|
+使い方							       |md-render-usage|
+  プレビュー						     |md-render-preview|
+  ライブラリ API						 |md-render-api|
+  ContentBuilder				     |md-render-content-builder|
+  Markdown						    |md-render-markdown|
+  Display Utilities				       |md-render-display-utils|
+  Image							       |md-render-image|
+使用例							     |md-render-example|
+ハイライトグループ					  |md-render-highlights|
+オプション依存						|md-render-dependencies|
+
+==============================================================================
+はじめに						*md-render-introduction*
+
+md-render.nvim は Neovim 用の Markdown レンダリングエンジンです。生の Markdown
+テキストをハイライト付きのインタラクティブなコンテンツに変換し、エディタ内で表
+示します。フローティングウィンドウ、タブ表示、ソース ↔ レンダーをその場で切り
+替えるトグル(|:MdRender-toggle|)、コマンドラインからの `less` ライクなページャー
+モードに対応しています。
+
+主な機能: ~
+
+- リッチなインライン書式（太字、取り消し線、インラインコード、リンク、Obsidian
+  `==highlight==` ）
+- テーブル（罫線文字による描画、列アラインメント、比例サイズ調整）
+- コールアウト & 折りたたみ（GitHub / Obsidian のアラートタイプに対応。色付き
+  ボーダー・アイコン・クリック折りたたみ切り替え）
+- コードブロック（treesitter シンタックスハイライト付き。省略時はクリックで展
+  開）
+- 画像（PNG, JPEG, WebP, GIF, アニメーション GIF）をターミナルグラフィクスプロ
+  トコルでインライン表示
+- 動画（MP4, WebM, MOV, AVI, MKV, M4V）をアニメーションフレームとしてインラ
+  イン再生
+- Mermaid ダイアグラムを画像としてインライン表示
+- CJK 対応ワードラップ（JIS X 4051 禁則処理 + オプションの BudouX フレーズ分
+  割）
+- クリック可能リンク（マウスクリックで URL を開く。OSC 8 ハイパーリンク対応）
+- `<details>` 対応（クリックで折りたたみ可能なセクション）
+- ライブラリ API（自作プラグインからプログラム的に利用可能）
+
+==============================================================================
+必要要件						*md-render-requirements*
+
+- Neovim >= 0.12（端末への書き出しに |nvim_ui_send()| を使用）
+- Kitty graphics protocol に対応したターミナル（画像・動画の表示に必要）：
+  - WezTerm (https://wezfurlong.org/wezterm/)
+  - Kitty (https://sw.kovidgoyal.net/kitty/)
+  - Ghostty (https://ghostty.org/)
+
+==============================================================================
+インストール						*md-render-installation*
+
+lazy.nvim の場合: >lua
+
+  {
+    "delphinus/md-render.nvim",
+    version = "*",
+    dependencies = {
+      { "nvim-tree/nvim-web-devicons", version = "*" },
+      { "delphinus/budoux.lua", version = "*" },
+    },
+    keys = {
+      {
+        "<leader>mp",
+        "<Plug>(md-render-preview)",
+        desc = "Markdown preview (toggle)",
+      },
+      {
+        "<leader>mt",
+        "<Plug>(md-render-preview-tab)",
+        desc = "Markdown preview in tab (toggle)",
+      },
+      {
+        "<leader>md",
+        "<Plug>(md-render-demo)",
+        desc = "Markdown render demo",
+      },
+    },
+  }
+<
+
+==============================================================================
+マッピング						    *md-render-mappings*
+
+このプラグインは `<Plug>` マッピングを提供しますが、デフォルトのキーバインドは設
+定しません。自分でマッピングしてください: >lua
+
+  vim.keymap.set("n", "<leader>mp", "<Plug>(md-render-preview)")
+  vim.keymap.set("n", "<leader>mt", "<Plug>(md-render-preview-tab)")
+  vim.keymap.set("n", "<leader>md", "<Plug>(md-render-demo)")
+<
+
+						     *<Plug>(md-render-preview)*
+<Plug>(md-render-preview) ~
+	現在の Markdown バッファのフローティングプレビューをトグルします。プレ
+	ビューウィンドウが開いている場合は閉じます。
+
+						 *<Plug>(md-render-preview-tab)*
+<Plug>(md-render-preview-tab) ~
+	現在の Markdown バッファのタブプレビューをトグルします。タブプレビュー
+	が開いている場合は閉じます。
+
+						     *<Plug>(md-render-toggle)*
+<Plug>(md-render-toggle) ~
+	[実験的] 現在のウィンドウをソースモードとレンダーモードの間で切り替え
+	ます。新しいウィンドウやタブは開かず、ウィンドウ内のバッファをその場で
+	入れ替えます。 |:MdRender-toggle| を参照。
+
+							       *<Plug>(md-render-auto)*
+<Plug>(md-render-auto) ~
+	[実験的] 現在のバッファで Insert モード連動の自動トグル(Insert 以外で
+	render、Insert 中は source)を on/off します。 |:MdRender-auto| を参照。
+
+							    *<Plug>(md-render-split)*
+<Plug>(md-render-split) ~
+	[実験的] 現在の Markdown バッファのソースとレンダリング表示を横/縦に
+	並べたスプリットを開きます。 |:MdRender-split| を参照。
+
+							*<Plug>(md-render-demo)*
+<Plug>(md-render-demo) ~
+	対応する全 Markdown 記法のデモウィンドウを表示します。
+
+プレビューウィンドウ内では以下のキーが使えます:
+
+	`q` / `<Esc>`	プレビューウィンドウを閉じる
+	`<CR>`		コールアウトの折りたたみ / 省略領域の展開
+	`<LeftMouse>`	リンクのクリック、折りたたみ、領域展開
+
+|:MdRender-toggle| で開かれたレンダーモードのバッファでは `q` / `<Esc>` /
+`<CR>` は閉じる動作に**割り当てられません**。ソースに戻すには再度
+|:MdRender-toggle| を呼びます。`<LeftMouse>` は折りたたみ・展開・リンクを
+引き続き処理します。
+
+==============================================================================
+コマンド						    *md-render-commands*
+
+このプラグインが公開するユーザコマンドは |:MdRender| ひとつで、サブコマン
+ドで動作モードを切り替えます。従来のトップレベルコマンド (`:MdRenderTab`、
+`:MdRenderToggle` など) はエイリアスとして残してありますが非推奨です。
+|md-render-deprecated-commands| を参照してください。
+
+								     *:MdRender*
+:MdRender [{subcommand}] [{args}] ~
+
+	現在の Markdown バッファをレンダリングします。{subcommand} で表示モ
+	ードを選択します:
+
+	  float       - フローティングプレビュー(既定。引数なしの
+	                |:MdRender| と同じ)
+	  tab         - 新しいタブでプレビューをトグル
+	  pager       - ページャーモード(フルスクリーン、`q` で Neovim 終
+	                了)
+	  toggle      - カレントウィンドウのバッファをソース ↔ レンダーで
+	                その場切り替え
+	  split       - ソースとレンダーを並べてスプリット表示。`:vert` /
+	                `:tab` / `:topleft` / `:botright` を尊重
+	  auto        - [実験的] Insert モードに連動して自動切替。第2引数
+	                として `on` / `off` / `toggle` を取る(既定は
+	                `toggle`)
+	  demo        - 対応している全記法のデモウィンドウを表示
+
+	タブ補完では第1引数としてサブコマンド一覧、`auto` の後では
+	`on` / `off` / `toggle` が候補になります。
+
+	各サブコマンドの詳細は以下のセクションを参照してください。
+
+							     *:MdRender-float*
+:MdRender float ~
+	現在の Markdown バッファのフローティングプレビューをトグルします。
+	引数なしの |:MdRender| もこれと同じ動作になります。
+
+							       *:MdRender-tab*
+:MdRender tab ~
+	現在の Markdown バッファのタブプレビューをトグルします。
+
+							    *:MdRender-toggle*
+:MdRender toggle ~
+	[実験的] 新しく追加された機能で、UX が変わる可能性があります。問題や
+	違和感があればぜひお知らせください。
+
+	現在のウィンドウをソースモードとレンダーモードの間でその場で切り替え
+	ます(新しいウィンドウもタブも開きません)。スプリットレイアウトで作
+	業する際に便利です — 例えば、片方のスプリットでコードを編集しながら、
+	もう片方でレンダリング済みの README を表示する、といった用途です。
+
+	挙動:
+
+	- レンダーバッファは読み取り専用で、トグル間で再利用されます(ソース
+	  バッファごとに1つキャッシュされます)。
+	- ソースバッファが複数のウィンドウで表示されている場合、切替は呼び出
+	  したウィンドウだけに作用します。他のウィンドウでの編集は、次にレン
+	  ダーモードへ切り替えた時点で反映されます。
+	- カーソル位置は往復します。レンダーモードでカーソルがある行に最も近
+	  いソース行が、ソースに戻したときのカーソル位置になります(逆方向も
+	  同様)。
+	- レンダーモードのウィンドウでは 'number' / 'relativenumber' /
+	  'list' が無効化されます。元の値はウィンドウに保存され、ソースに
+	  戻したときに復元されます。
+
+							      *:MdRender-auto*
+:MdRender auto [on|off|toggle] ~
+	[実験的] 新しく追加された機能で、UX が変わる可能性があります。問題や
+	違和感があればぜひお知らせください。
+
+	現在のバッファについて、Insert モードに連動して source/render を自動的
+	に切り替えます。状態はバッファ単位で `b:md_render_auto` に保持されます。
+
+	- `:MdRender auto on` は現在のバッファを即座に render モードへ切り替
+	  え、`InsertEnter` で source、`InsertLeave` で render に戻る autocmd
+	  を登録します。
+	- `:MdRender auto off` は autocmd を解除しバッファのマーカーをクリア
+	  します。表示モードは変更しません。
+	- `:MdRender auto toggle`、または第2引数なしの `:MdRender auto` は
+	  on / off をトグルします。
+
+	プラグイン側で |FileType| autocmd は登録しません。全 Markdown バッファ
+	で自動有効化したい場合は自分で書いてください: >vim
+
+	  autocmd FileType markdown silent! MdRender auto on
+<
+	挙動:
+
+	- レンダーバッファは `nomodifiable` なので、その上では |InsertEnter|
+	  が発火しません。auto モード中はレンダーバッファ上で `i` / `I` /
+	  `a` / `A` / `o` / `O` を再マップし、まず source に切り替えてから
+	  対応する位置で Insert に入る形にしています。
+	- `<Esc>` で source の Normal モードに戻ると、|InsertLeave| autocmd
+	  が 50ms デバウンスで render へ戻します。
+	- `i<Esc>i<Esc>` のような連射でも最後の状態だけが反映されます。
+	- 切替はカレントウィンドウのみが対象です。同じソースを表示している他
+	  ウィンドウは手動で |:MdRender-toggle| してください。
+
+	レンダーバッファ上で効くもの: ~
+
+	  読み取り系操作: 移動 (hjkl, gg, G, ...)、検索 (/, ?)、yank (y)、
+	  ビジュアル選択、マーク、<LeftMouse>(折りたたみ・展開・リンク
+	  open)。
+
+	  `:w` / `:w!` は source バッファへ転送されるため、render モード
+	  を抜けずに保存できます。`:w other.md` や `:saveas` のような別名
+	  保存は対応外です。 |:MdRender-toggle| で source に戻ってから操作
+	  してください。
+
+	  レンダーバッファには `<source-path> [render]` という名前が付くた
+	  め、ステータスラインやピッカーで識別できます。
+
+	レンダーバッファ上で効かないもの: ~
+
+	  レンダーバッファは `nomodifiable` なので、書き換え系の操作はブロック
+	  されるか黙って no-op になります:
+
+	  - 編集系キー: c C s S r R d D x X p P J ~ >> <<
+	  - undo / redo (u / <C-r>) — レンダーバッファ自体に編集履歴があ
+	    りません
+	  - バッファを書き換える Ex コマンド: :s, :!filter, gq
+	  - 編集キーを含むマクロ
+
+	  これらを使いたい場合は |:MdRender-toggle| (auto モード中なら `i`
+	  / `I` / `a` / `A` / `o` / `O` を押すだけでも可)で source に戻っ
+	  てから操作してください。
+
+							     *:MdRender-split*
+:MdRender split ~
+	[実験的] 新しく追加された機能で、UX が変わる可能性があります。問題や
+	違和感があればぜひお知らせください。
+
+	ソース Markdown バッファとレンダリング表示を同時に並べて表示するため
+	のスプリットを開きます。スプリット方向は標準の Vim モディファイアに
+	従います: >vim
+
+	  :MdRender split          " 水平スプリット
+	  :vert MdRender split     " 垂直スプリット
+	  :tab MdRender split      " 新しいタブ内でスプリット
+	  :topleft MdRender split  " 一番上に配置
+	  :botright MdRender split " 一番下に配置
+<
+	挙動は対称です:
+
+	- ソースウィンドウから呼ぶと、新しいスプリットには render が表示
+	  されます。
+	- render ウィンドウ( |:MdRender-toggle| で作られたもの)から呼ぶ
+	  と、新しいスプリットには source が表示されます。
+
+	どちらから呼んでも結果は source/render の横並びになります。
+
+	レンダーバッファは |:MdRender-toggle| のセッションキャッシュと共
+	有されます。後から |:MdRender-toggle| を呼んでも同じレンダーバッ
+	ファが再利用され、編集は toggle と同じ 150ms デバウンス付きライ
+	ブ更新パスを通じて反映されます。
+
+	ソースとレンダーのカーソル/スクロール位置は自動で同期します。ど
+	ちらかでカーソル移動やスクロールをすると、もう一方も対応行へ追従
+	し、ウィンドウ内の同じ行位置に表示が揃います。
+
+	スプリットウィンドウを `:q` や `<C-w>c` で閉じても、レンダーバッ
+	ファは破棄されず、ソースに紐づいてキャッシュされたまま次のトグル
+	やスプリットに備えます。
+
+	制限事項: インライン画像はウィンドウに対して 1 つしかバインドで
+	きません。 |:MdRender-split| を 2 回呼ぶと render ウィンドウは 2
+	枚できますが、画像が出るのは最後に開いた方だけです(古い render
+	ウィンドウもテキスト内容のライブ更新は受けます)。
+
+							     *:MdRender-pager*
+:MdRender pager ~
+	ページャーモード。現在の Markdown バッファをフルスクリーンで装飾なしに
+	表示します。 `q` で Neovim を終了します。Markdown ファイルを `less` のよう
+	に閲覧するのに便利です: >bash
+
+	  nvim +"MdRender pager" README.md
+<
+	シェルエイリアスを設定すると便利です: >bash
+
+	  alias mdless='nvim +"MdRender pager"'
+	  mdless README.md
+<
+
+							      *:MdRender-demo*
+:MdRender demo ~
+	対応する全 Markdown 記法のデモウィンドウを表示します。
+
+------------------------------------------------------------------------------
+非推奨コマンド					 *md-render-deprecated-commands*
+
+以下のトップレベルコマンドは後方互換のためのエイリアスとして残しています。
+Neovim セッションごとに最初の呼び出しで `vim.notify_once` による警告を1度
+だけ表示し、新しい |:MdRender| ディスパッチャへ転送されます。将来のメ
+ジャーバージョンで削除されます。
+
+								  *:MdRenderTab*
+:MdRenderTab ~
+	`:MdRender tab` の非推奨エイリアスです。
+
+							     *:MdRenderToggle*
+:MdRenderToggle ~
+	`:MdRender toggle` の非推奨エイリアスです。
+
+							       *:MdRenderAuto*
+:MdRenderAuto [on|off|toggle] ~
+	`:MdRender auto [on|off|toggle]` の非推奨エイリアスです。
+
+							      *:MdRenderSplit*
+:MdRenderSplit ~
+	`:MdRender split` の非推奨エイリアスです。Vim のスプリットモディフ
+	ァイア (`:vert` / `:tab` / `:topleft` / `:botright`) も同様に効きま
+	す。
+
+							      *:MdRenderPager*
+:MdRenderPager ~
+	`:MdRender pager` の非推奨エイリアスです。
+
+							       *:MdRenderDemo*
+:MdRenderDemo ~
+	`:MdRender demo` の非推奨エイリアスです。
+
+==============================================================================
+TELESCOPE 連携						   *md-render-telescope*
+
+							 *telescope.previewer()*
+PREVIEWER ~
+
+telescope.previewer({opts}) ~
+	任意の telescope.nvim picker（builtin、extension、カスタム問わず）に渡
+	せるプレビューアーを作成します。
+
+	パラメータ: ~
+	  {opts}  (table|nil) オプション設定:
+	    - {namespace}  (string) extmark 名前空間名
+				    （デフォルト: "md_render_telescope"）
+
+	戻り値: ~
+	  telescope 互換のバッファプレビューアー
+
+	使用例: >lua
+	  local previewer = require("md-render.telescope").previewer()
+	  require("telescope.builtin").find_files({ previewer = previewer })
+	  require("telescope").extensions.egrepify.egrepify({
+	    previewer = previewer,
+	  })
+<
+
+ファイルの種類に応じて自動的に表示方法を切り替えます：
+
+  Markdown (.md, .markdown)     md-render によるフルレンダリング（ハイライト、
+				リンク、インライン画像）
+
+  画像・動画                    Kitty graphics protocol でインライン表示。ファ
+  (PNG, JPEG, WebP, GIF,        イル名とサイズをヘッダーに表示。
+  MP4, WebM, AVI, ...)
+
+  その他                        telescope のデフォルトファイル previewer（シン
+				タックスハイライト付き）にフォールバック。
+
+grep 系の picker（ `live_grep` 、 `grep_string` など）では、マッチしたソース行に自
+動スクロールします。
+
+							  *:Telescope_md_render*
+:TELESCOPE MD_RENDER EXTENSION ~
+
+builtin picker 用のショートカットです。 `telescope.builtin` の picker を
+md-render previewer 付きでラップします。引数はすべてそのまま渡されます。
+>vim
+  :Telescope md_render find_files
+  :Telescope md_render live_grep cwd=~/notes
+  :Telescope md_render grep_string search=TODO
+<
+
+==============================================================================
+SNACKS.NVIM 連携					      *md-render-snacks*
+
+							      *snacks.preview()*
+PREVIEW ~
+
+snacks.preview({opts}) ~
+	snacks.nvim の picker 用プレビュー関数を作成します。telescope 版と同じ
+	く Markdown レンダリング、画像・動画表示、デフォルト previewer への
+	フォールバックに対応します。
+
+	パラメータ: ~
+	  {opts}  (table|nil) オプション設定:
+	    - {namespace}  (string) extmark 名前空間名
+				    （デフォルト: "md_render_snacks"）
+
+	戻り値: ~
+	  snacks.nvim 互換のプレビュー関数
+
+	使用例（グローバル）: >lua
+	  require("snacks").setup({
+	    picker = {
+	      preview = require("md-render.snacks").preview(),
+	    },
+	  })
+<
+
+	使用例（source ごと）: >lua
+	  require("snacks").setup({
+	    picker = {
+	      sources = {
+	        files = { preview = require("md-render.snacks").preview() },
+	        grep = { preview = require("md-render.snacks").preview() },
+	      },
+	    },
+	  })
+<
+
+ファイルの種類に応じて自動的に表示方法を切り替えます：
+
+  Markdown (.md, .markdown)     md-render によるフルレンダリング（ハイライト、
+				リンク、インライン画像）
+
+  画像・動画                    Kitty graphics protocol でインライン表示。ファ
+  (PNG, JPEG, WebP, GIF,        イル名とサイズをヘッダーに表示。
+  MP4, WebM, AVI, ...)
+
+  その他                        snacks のデフォルトファイル previewer（シン
+				タックスハイライト付き）にフォールバック。
+
+grep 系の picker では、マッチしたソース行に自動スクロールします。
+
+==============================================================================
+使い方							       *md-render-usage*
+
+------------------------------------------------------------------------------
+プレビュー						     *md-render-preview*
+
+							      *MdPreview.show()*
+MdPreview.show({opts}) ~
+	現在の Markdown バッファのフローティングプレビューをトグルします。
+
+	パラメータ: ~
+	  {opts}  (table|nil) オプション設定:
+		  - {max_width}  (integer) 最大レンダリング幅
+
+	使用例: >lua
+	  require("md-render").preview.show({ max_width = 100 })
+<
+
+							  *MdPreview.show_tab()*
+MdPreview.show_tab({opts}) ~
+	現在の Markdown バッファのタブプレビューをトグルします。
+
+	パラメータ: ~
+	  {opts}  (table|nil) オプション設定:
+		  - {max_width}  (integer) 最大レンダリング幅
+
+	使用例: >lua
+	  require("md-render").preview.show_tab({ max_width = 100 })
+<
+
+							     *MdPreview.toggle()*
+MdPreview.toggle({opts}) ~
+	[実験的] 現在のウィンドウをソースモードとレンダーモードの間でその場
+	で切り替えます。詳細は |:MdRender-toggle| を参照してください。
+
+	パラメータ: ~
+	  {opts}  (table|nil) オプション設定(レンダーバッファの初回生成時の
+		  みに使用されます):
+		  - {max_width}  (integer) 最大レンダリング幅
+
+	使用例: >lua
+	  require("md-render").preview.toggle()
+<
+
+							    *MdPreview.auto_on()*
+MdPreview.auto_on({opts}) ~
+	[実験的] 現在のバッファで Insert モード連動の自動トグルを有効化し、
+	即座に render モードへ切り替えます。詳細は |:MdRender-auto| を参照。
+
+	パラメータ: ~
+	  {opts}  (table|nil) レンダーバッファ初回生成時に |MdPreview.toggle()|
+		  へ転送されます。
+
+							   *MdPreview.auto_off()*
+MdPreview.auto_off() ~
+	[実験的] 現在のバッファの自動トグルを解除します。表示モードはそのまま
+	です。詳細は |:MdRender-auto| を参照。
+
+							*MdPreview.auto_toggle()*
+MdPreview.auto_toggle({opts}) ~
+	[実験的] 現在のバッファの自動トグル状態を on/off で反転します。詳細は
+	|:MdRender-auto| を参照。
+
+	パラメータ: ~
+	  {opts}  (table|nil) on にする際 |MdPreview.auto_on()| へ転送されます。
+
+							      *MdPreview.split()*
+MdPreview.split({opts}) ~
+	[実験的] 現在の Markdown バッファのソースとレンダリング表示を横/縦に
+	並べたスプリットを開きます。詳細は |:MdRender-split| を参照。
+
+	パラメータ: ~
+	  {opts}  (table|nil) オプション:
+		  - {mods}      (table) コマンドモディファイア。通常はユー
+				ザーコマンドコールバックの `args.smods` を
+				そのまま渡します(例: `{ vertical = true }`)。
+		  - {max_width} (integer) 最大レンダリング幅(レンダーバッ
+				ファが初めて作成されるときのみ使用)。
+
+	使用例: >lua
+	  require("md-render").preview.split({ mods = { vertical = true } })
+<
+
+							*MdPreview.show_pager()*
+MdPreview.show_pager({opts}) ~
+	現在の Markdown バッファをページャーモードで表示します（フル
+	スクリーン、最小限の UI、 `q` で Neovim 終了）。
+
+	パラメータ: ~
+	  {opts}  (table|nil) オプション設定:
+		  - {max_width}  (integer) 最大レンダリング幅
+
+	使用例: >lua
+	  require("md-render").preview.show_pager()
+<
+
+							 *MdPreview.show_demo()*
+MdPreview.show_demo() ~
+	対応する全 Markdown 記法のデモウィンドウを表示します。
+
+						     *MdPreview.build_content()*
+MdPreview.build_content({lines}, {opts}) ~
+	Markdown 行からレンダリング済みコンテンツを構築します。YAML フロントマ
+	ターの抽出を行い、 |ContentBuilder| に委譲します。
+
+	パラメータ: ~
+	  {lines}  (string[]) 生の Markdown 行
+	  {opts}   (table) |ContentBuilder:render_document()| に渡すオプション
+
+	戻り値: ~
+	  コンテンツ結果テーブル（ |ContentBuilder:result()| 参照）
+
+------------------------------------------------------------------------------
+ライブラリ API							 *md-render-api*
+
+メインモジュール `require("md-render")` は以下のサブモジュールを re-export しま
+す:
+
+  `ContentBuilder`   |md-render-content-builder|
+  `Markdown`         |md-render-markdown|
+  `MarkdownTable`    テーブルの解析とレンダリング
+  `FloatWin`         フローティングウィンドウ管理
+  `TabWin`           タブウィンドウ管理
+  `display_utils`    |md-render-display-utils|
+  `preview`          |md-render-preview| （遅延読み込み）
+
+------------------------------------------------------------------------------
+CONTENT BUILDER					     *md-render-content-builder*
+
+							  *ContentBuilder.new()*
+ContentBuilder.new() ~
+	新しい ContentBuilder インスタンスを作成します。
+
+					      *ContentBuilder:render_document()*
+ContentBuilder:render_document({lines}, {opts}) ~
+	Markdown ドキュメント全体をレンダリングします。
+
+	パラメータ: ~
+	  {lines}  (string[]) 生の Markdown 行
+	  {opts}   (table|nil) オプション:
+	    - {max_width}           (integer) 最大幅（デフォルト: 80）
+	    - {indent}              (string)  インデント（デフォルト: "  "）
+	    - {max_lines}           (number)  最大行数
+	                            （デフォルト: math.huge）
+	    - {repo_base_url}       (string)  相対リンクのベース URL
+	    - {autolinks}           (table[]) オートリンクパターン:
+	                              - {key_prefix} (string) 例: "JIRA-"
+	                              - {url_template} (string)
+	                                例: "https://...JIRA-<num>"
+	                              - {is_alphanumeric} (boolean|nil)
+	    - {fold_state}          (table)   コールアウト折りたたみ状態
+	    - {expand_state}        (table)   展開領域状態
+	    - {source_line_offset}  (integer) ソース行オフセット
+
+						       *ContentBuilder:result()*
+ContentBuilder:result() ~
+	レンダリング済みコンテンツを返します。結果テーブルには行、ハイライト、
+	リンクメタデータ、コードブロック、折りたたみ、展開領域、画像、ソース行
+	マッピングが含まれ、 |display_utils| で使用されます。
+
+						     *ContentBuilder:add_line()*
+ContentBuilder:add_line({text}, {hl_groups}) ~
+	ハイライトグループ付きの 1 行を追加します。
+
+						  *ContentBuilder:add_labeled()*
+ContentBuilder:add_labeled({label}, {value}, {value_hl}) ~
+	キーバリューペアの行を追加します（フロントマターの表示に使用）。
+
+					 *ContentBuilder:add_wrapped_markdown()*
+ContentBuilder:add_wrapped_markdown({text}, ...) ~
+	ワードラップとインライン書式付きの Markdown 行を追加します。
+
+	全パラメータ: ~
+	  {text}, {indent}, {max_width}, {repo_base_url}, {autolinks},
+	  {ref_links}, {footnote_map}
+
+					  *ContentBuilder:add_simple_markdown()*
+ContentBuilder:add_simple_markdown({text}, ...) ~
+	インライン書式付き（ラップなし）の Markdown 行を追加します。
+
+	全パラメータ: ~
+	  {text}, {indent}, {repo_base_url}, {autolinks}, {ref_links},
+	  {footnote_map}
+
+						    *ContentBuilder:add_table()*
+ContentBuilder:add_table({table_lines}, ...) ~
+	罫線文字付きの Markdown テーブルをレンダリングします。
+
+	全パラメータ: ~
+	  {table_lines}, {indent}, {max_width}, {repo_base_url}, {autolinks}
+
+------------------------------------------------------------------------------
+MARKDOWN						    *md-render-markdown*
+
+							     *Markdown.render()*
+Markdown.render({text}, ...) ~
+	1 行の Markdown を表示テキスト、ハイライト、リンクメタデータにレンダリ
+	ングします。
+
+	パラメータ: ~
+	  {text}           (string)      生の Markdown テキスト
+	  {repo_base_url}  (string|nil)  相対リンクのベース URL
+	  {autolinks}      (table[]|nil) オートリンクパターン
+	  {ref_links}      (table|nil)   参照リンク定義
+	  {footnote_map}   (table|nil)   脚注定義
+
+	戻り値: ~
+	  {text}        (string)  表示テキスト
+	  {highlights}  (table[]) ハイライトスパン
+	  {links}       (table[]) リンクメタデータ
+
+						       *Markdown.heading_slug()*
+Markdown.heading_slug({text}) ~
+	見出しテキストを GitHub 互換の URL スラグに変換します。
+
+						    *Markdown.parse_footnotes()*
+Markdown.parse_footnotes({lines}) ~
+	Markdown 行から脚注定義を解析します。
+
+					      *Markdown.parse_reference_links()*
+Markdown.parse_reference_links({lines}) ~
+	Markdown 行から参照リンク定義を解析します。
+
+					     *Markdown.renumber_ordered_lists()*
+Markdown.renumber_ordered_lists({lines}) ~
+	CommonMark ルールに従って番号付きリスト項目を振り直します。
+
+------------------------------------------------------------------------------
+DISPLAY UTILITIES				       *md-render-display-utils*
+
+				       *display_utils.apply_content_to_buffer()*
+display_utils.apply_content_to_buffer({buf}, {ns}, {content}, {opts}) ~
+	レンダリング済みコンテンツ（行、ハイライト、リンク）をバッファに適用し
+	ます。
+
+				   *display_utils.apply_treesitter_highlights()*
+display_utils.apply_treesitter_highlights({buf}, {ns}, {content}) ~
+	コードブロックに treesitter シンタックスハイライトを適用します。
+
+					     *display_utils.open_float_window()*
+display_utils.open_float_window({buf}, {content}, {float_win}, {opts}) ~
+	レンダリング済みコンテンツ用のフローティングウィンドウを作成・配置しま
+	す。
+
+					   *display_utils.setup_float_keymaps()*
+display_utils.setup_float_keymaps({buf}, {ns}, {win}, {content}, ...) ~
+	フローティングウィンドウでインタラクティブなキーマップ（リン
+	ククリック、折りたたみ切り替えなど）を設定します。
+
+	全パラメータ: ~
+	  {buf}, {ns}, {win}, {content}, {float_win}, {opts}
+
+						 *display_utils.supports_osc8()*
+display_utils.supports_osc8() ~
+	ターミナルが OSC 8 ハイパーリンクに対応しているかチェックします。
+
+						  *display_utils.setup_images()*
+display_utils.setup_images({win}, {content}, {ns}, {opts}) ~
+	ウィンドウの画像表示を初期化します。
+
+	パラメータ: ~
+	  {win}      (integer) ウィンドウハンドル
+	  {content}  (table) |ContentBuilder:result()| のコンテンツ
+	  {ns}       (integer|nil) extmark 名前空間
+	  {opts}     (table|nil) オプション設定:
+		     - {buf}  (integer) 自動リビルド用バッファハンドル
+		     - {build_content}  (function) URL 画像ダウンロード後に
+		       正しいサイズでコンテンツを再構築するために呼ばれる
+		       関数。新しいコンテンツテーブルを返す。
+
+------------------------------------------------------------------------------
+IMAGE							       *md-render-image*
+
+						       *image.set_download_fn()*
+image.set_download_fn({fn}) ~
+	Web 画像のダウンロード関数をカスタム設定します。デフォルトでは curl が
+	使用されます。
+
+	パラメータ: ~
+	  {fn}  (function) 以下のシグネチャを持つ関数:
+		  fn(url: string, dest: string, callback: function)
+
+							   *image.reset_cache()*
+image.reset_cache() ~
+	キャッシュされた画像と Mermaid レンダリング結果をすべてクリアします。
+
+							*image.supports_kitty()*
+image.supports_kitty() ~
+	ターミナルが Kitty graphics protocol に対応しているかチェックします。
+
+==============================================================================
+使用例							     *md-render-example*
+
+Markdown をレンダリングしてバッファに表示する完全な例です:
+>lua
+
+  local md = require("md-render")
+
+  -- 1 行の Markdown をレンダリング
+  local text, highlights, links =
+    md.Markdown.render("**bold** and [link](https://example.com)")
+
+  -- ドキュメント全体のコンテンツを構築
+  local ContentBuilder = md.ContentBuilder
+  local b = ContentBuilder.new()
+  b:render_document(lines, {
+    max_width = 80,
+    indent = "  ",
+    repo_base_url = "https://github.com/user/repo",
+    autolinks = {
+      {
+        key_prefix = "JIRA-",
+        url_template =
+          "https://jira.example.com/browse/JIRA-<num>",
+      },
+    },
+  })
+  local content = b:result()
+
+  -- バッファに適用
+  local buf = vim.api.nvim_create_buf(false, true)
+  local ns = vim.api.nvim_create_namespace("my_ns")
+  md.display_utils.apply_content_to_buffer(buf, ns, content)
+
+  -- 画像を表示（Kitty Graphics Protocol 対応ターミナルが必要）
+  -- ウィンドウを閉じると自動的にクリーンアップされます。
+  local win = vim.api.nvim_get_current_win()
+  md.display_utils.setup_images(win, content, ns)
+<
+
+==============================================================================
+ハイライトグループ					  *md-render-highlights*
+
+すべてのハイライトグループは `default = true` で定義されているため、カラースキー
+ムで上書きできます。
+
+インライン書式 ~
+
+  *Bold*                太字（フォールバック; `bold = true` ）
+  *Italic*              斜体（フォールバック; `italic = true` ）
+  *MdRenderInlineCode*  インラインコード（ `` `code` `` および `<code>` ）。
+                        fg は `String` を継承し、bg は控えめなニュートラル色
+                        （Comment fg と Normal bg のブレンド）でコードと
+                        見出しを視覚的に区別する。
+  *MdRenderHighlight*   Obsidian `==highlight==` マーカー
+  *MdRenderTag*         Obsidian `#tag` （ `Label` にリンク）
+  *MdRenderMath*        数式（ `Special` にリンク）
+  *MdRenderLinkAnchor*  アンカーリンク `#heading`
+                        （ `DiagnosticHint` にリンク）
+  *MdRenderLinkObsidian*
+                        Obsidian ウィキリンク `[[...]]` （ `Special` にリンク）
+
+見出し ~
+
+  *MdRenderH1*  見出しレベル 1（treesitter hl から派生）
+  *MdRenderH2*  見出しレベル 2
+  *MdRenderH3*  見出しレベル 3
+  *MdRenderH4*  見出しレベル 4
+  *MdRenderH5*  見出しレベル 5
+  *MdRenderH6*  見出しレベル 6
+
+アラート / コールアウト ~
+
+各アラートタイプ（{Type} = Note, Tip, Important, Warning, Caution, Abstract,
+Todo, Success, Question, Failure, Danger, Bug, Example, Quote）について:
+
+  *MdRenderAlert{Type}*   アラートヘッダのテキスト色（太字、対応する diagnostic
+                        ハイライトから派生）
+  *MdRenderAlert{Type}Bg* アラートの背景色（アラート fg と NormalFloat bg
+                        からブレンド）
+
+Details ~
+
+  *MdRenderDetailsBg*   `<details>` セクションの背景色
+  *MdRenderDetailsBar*  `<details>` セクションのボーダー/インジケータ
+
+画像 ~
+
+  *MdRenderImagePlaceholder*
+                        画像読み込み中に表示されるプレースホルダー
+
+分割モード ~
+
+  *MdRenderShadowCursor*
+                        |:MdRender-split| でフォーカスしていない側のウィ
+                        ンドウに表示される shadow cursor。フォーカス側
+                        のカーソルに対応する行をハイライトする
+                        （ `CursorLine` にリンク）
+
+==============================================================================
+オプション依存						*md-render-dependencies*
+
+  nvim-web-devicons    コードブロックヘッダのファイルタイプアイコン。内蔵アイ
+  (または |mini.icons|)  コンテーブルにフォールバック。
+                       https://github.com/nvim-tree/nvim-web-devicons
+                       https://github.com/echasnovski/mini.icons
+
+  budoux.lua           CJK フレーズ単位の改行（BudouX）。1 文字ずつ分割に
+                       フォールバック（禁則処理は維持）。
+                       https://github.com/delphinus/budoux.lua
+
+  Treesitter パーサー  コードブロックのシンタックスハイライト。パーサーがない
+                       場合はハイライトなしで表示。
+
+  curl                 Web 画像・動画のダウンロード。
+                       |image.set_download_fn()| で置換可。
+
+  FFmpeg               JPEG/WebP → PNG 変換、アニメーション GIF / 動画のフ
+  (ffmpeg/ffprobe)     レーム展開。画像は ImageMagick にフォールバック。動画
+                       には ffmpeg が必要。
+
+  ImageMagick          JPEG/WebP → PNG、アニメーション GIF フレーム展開。
+  (magick)             macOS では `sips` が静止画変換を処理。アニメーション
+                       GIF には ffmpeg か magick が必要。
+
+  Mermaid CLI          Mermaid ダイアグラムを画像として描画。 `npx -y
+  (mmdc)               @mermaid-js/mermaid-cli` にフォールバック。
+                       https://github.com/mermaid-js/mermaid-cli
+
+==============================================================================
+vim:tw=78:ts=8:ft=help:norl:

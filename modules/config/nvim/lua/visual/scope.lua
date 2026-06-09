@@ -1,0 +1,2 @@
+-- snacks.scope is enabled via snacks.setup()
+-- No additional config needed.

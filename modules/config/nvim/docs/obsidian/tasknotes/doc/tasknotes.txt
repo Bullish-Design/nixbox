@@ -1,0 +1,217 @@
+*tasknotes.txt*  TaskNotes integration for Neovim
+
+==============================================================================
+CONTENTS                                              *tasknotes-contents*
+
+    1. Introduction ...................... |tasknotes-introduction|
+    2. Requirements ...................... |tasknotes-requirements|
+    3. Installation ...................... |tasknotes-installation|
+    4. Configuration ..................... |tasknotes-configuration|
+    5. Commands .......................... |tasknotes-commands|
+    6. Mappings .......................... |tasknotes-mappings|
+    7. API ............................... |tasknotes-api|
+    8. TaskNotes Format .................. |tasknotes-format|
+
+==============================================================================
+1. INTRODUCTION                                   *tasknotes-introduction*
+
+tasknotes.nvim is a Neovim plugin for managing TaskNotes - a task management
+system where each task is stored as a separate markdown file with YAML
+frontmatter.
+
+Features:
+  - Browse and search tasks with Telescope
+  - Create and edit tasks with NUI forms
+  - Time tracking with start/stop timers
+  - Full YAML frontmatter support
+  - Customizable statuses, priorities, and colors
+
+==============================================================================
+2. REQUIREMENTS                                   *tasknotes-requirements*
+
+- Neovim >= 0.5.0
+- nui.nvim (required)
+- telescope.nvim (optional but recommended)
+- plenary.nvim (optional but recommended)
+- yq (optional, for improved YAML parsing)
+
+==============================================================================
+3. INSTALLATION                                   *tasknotes-installation*
+
+Using lazy.nvim: >
+    {
+      "emiller/tasknotes.nvim",
+      dependencies = {
+        "MunifTanjim/nui.nvim",
+        "nvim-telescope/telescope.nvim",
+        "nvim-lua/plenary.nvim",
+      },
+      config = function()
+        require("tasknotes").setup({
+          vault_path = "~/notes/tasks",
+        })
+      end,
+    }
+<
+
+==============================================================================
+4. CONFIGURATION                                 *tasknotes-configuration*
+
+Default configuration: >
+    require("tasknotes").setup({
+      vault_path = "~/notes/tasks",
+      task_identification_method = "tag",
+      task_tag = "task",
+
+      statuses = {
+        { name = "open", display = "Open", color = "#808080" },
+        { name = "in-progress", display = "In Progress", color = "#0066cc" },
+        { name = "done", display = "Done", color = "#00aa00" },
+      },
+
+      priorities = {
+        { name = "none", display = "None", color = "#cccccc" },
+        { name = "low", display = "Low", color = "#00aa00" },
+        { name = "normal", display = "Normal", color = "#ffaa00" },
+        { name = "high", display = "High", color = "#ff0000" },
+      },
+
+      ui = {
+        border_style = "rounded",
+      },
+
+      keymaps = {
+        browse = "<leader>tb",
+        new_task = "<leader>tn",
+        edit_task = "<leader>te",
+        toggle_timer = "<leader>tt",
+      },
+    })
+<
+
+==============================================================================
+5. COMMANDS                                           *tasknotes-commands*
+
+:TaskNotesBrowse                                      *:TaskNotesBrowse*
+    Open Telescope picker to browse all tasks
+
+:TaskNotesNew                                         *:TaskNotesNew*
+    Create a new task with form
+
+:TaskNotesEdit                                        *:TaskNotesEdit*
+    Edit current task metadata
+
+:TaskNotesRescan                                      *:TaskNotesRescan*
+    Rescan vault directory for tasks
+
+:TaskNotesTimerToggle                                 *:TaskNotesTimerToggle*
+    Start/stop timer for current task
+
+:TaskNotesTimerStatus                                 *:TaskNotesTimerStatus*
+    Show active timer status
+
+:TaskNotesTimeEntries                                 *:TaskNotesTimeEntries*
+    View time entries for current task
+
+:TaskNotesByStatus                                    *:TaskNotesByStatus*
+    Browse tasks filtered by status
+
+:TaskNotesByPriority                                  *:TaskNotesByPriority*
+    Browse tasks filtered by priority
+
+:TaskNotesByContext                                   *:TaskNotesByContext*
+    Browse tasks filtered by context
+
+==============================================================================
+6. MAPPINGS                                           *tasknotes-mappings*
+
+Default keymaps can be configured in setup():
+
+    <leader>tb    Browse tasks
+    <leader>tn    Create new task
+    <leader>te    Edit current task
+    <leader>tt    Toggle timer
+
+Telescope picker actions:
+
+    <CR>      Open task file
+    <C-d>     Mark task as done
+    <C-e>     Edit task metadata
+    <C-x>     Delete task
+    <C-t>     Toggle timer for task
+
+==============================================================================
+7. API                                                *tasknotes-api*
+
+                                                     *tasknotes.setup()*
+tasknotes.setup({config})
+    Setup the plugin with custom configuration
+
+                                                     *tasknotes.browse_tasks()*
+tasknotes.browse_tasks({filter})
+    Open Telescope picker with optional filter
+    Parameters:
+      {filter}  Optional table with status, priority, context, or project
+
+                                                     *tasknotes.new_task()*
+tasknotes.new_task()
+    Open form to create a new task
+
+                                                     *tasknotes.edit_task()*
+tasknotes.edit_task()
+    Edit current buffer's task metadata
+
+                                                     *tasknotes.toggle_timer()*
+tasknotes.toggle_timer()
+    Toggle timer for current task
+
+                                                     *tasknotes.statusline()*
+tasknotes.statusline()
+    Get statusline component showing active timer
+
+                                                     *tasknotes.rescan()*
+tasknotes.rescan()
+    Rescan vault for tasks
+
+==============================================================================
+8. TASKNOTES FORMAT                                   *tasknotes-format*
+
+TaskNotes files are markdown with YAML frontmatter: >
+
+    ---
+    title: Review quarterly budget
+    status: open
+    priority: high
+    due: 2025-08-15
+    scheduled: 2025-08-14
+    tags:
+      - task
+      - work
+    contexts:
+      - "@office"
+    projects:
+      - "[[Q3 Planning]]"
+    timeEstimate: 60
+    ---
+
+    Additional task notes here.
+<
+
+Frontmatter fields:
+
+    title           Task title (required)
+    status          Current status (open, in-progress, done)
+    priority        Priority level (none, low, normal, high)
+    due             Due date (YYYY-MM-DD)
+    scheduled       Scheduled date (YYYY-MM-DD)
+    contexts        Location/tool contexts
+    projects        Related projects (wikilinks)
+    tags            Tags array
+    timeEstimate    Estimated time in minutes
+    timeEntries     Time tracking entries
+    completedDate   Completion timestamp
+    dateCreated     Creation timestamp
+    dateModified    Last modification timestamp
+
+==============================================================================
+vim:tw=78:ts=8:ft=help:norl:
