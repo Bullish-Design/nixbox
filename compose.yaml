@@ -1,0 +1,31 @@
+# Run the nixbox terminal image with persistent state.
+#
+# Build the image first:
+#     devenv container build nixbox
+#     # load the produced nix2container image into docker, e.g.:
+#     #   devenv container copy nixbox --registry docker-daemon:
+#
+# Then:  docker compose up
+#
+# Persistence: the named volumes keep neovim's vim.pack plugins, treesitter
+# grammars, zellij sessions, and the web login token across restarts — so the
+# one-off preseed (and token bootstrap) only happen the first time.
+#
+# Networking: zellij's web server binds loopback (a non-loopback bind needs
+# TLS). `network_mode: host` makes that loopback the host's loopback, so you can
+# front it with `tailscale serve` / a reverse proxy, matching zelligate's model.
+# If you prefer bridged networking + published ports, run a socat forwarder
+# (0.0.0.0:<public> -> 127.0.0.1:<webPort>) inside the container, as zelligate
+# does, or set nixbox.bind = "0.0.0.0" with --cert/--key.
+services:
+  nixbox:
+    image: nixbox:0.1.0
+    network_mode: host
+    volumes:
+      - nixbox-data:/env/.local    # vim.pack plugins, zellij sessions, token, sentinels
+      - nixbox-cache:/env/.cache   # neovim + zellij caches
+    restart: unless-stopped
+
+volumes:
+  nixbox-data:
+  nixbox-cache:

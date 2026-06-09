@@ -8,8 +8,10 @@
   nixbox.bind = "127.0.0.1";
 
   # Container metadata for `devenv container build nixbox`.
+  # `nixbox-start` warms neovim plugins on first run (persisted via the volume
+  # in compose.yaml), then starts the zellij web server.
   containers.nixbox = {
     name = "nixbox";
-    startupCommand = "nixbox-web";
+    startupCommand = "nixbox-start";
   };
 }
