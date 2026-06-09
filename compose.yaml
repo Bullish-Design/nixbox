@@ -19,11 +19,15 @@
 # does, or set nixbox.bind = "0.0.0.0" with --cert/--key.
 services:
   nixbox:
-    image: nixbox:0.1.0
+    image: nixbox:0.2.0
     network_mode: host
     volumes:
-      - nixbox-data:/env/.local    # vim.pack plugins, zellij sessions, token, sentinels
+      - nixbox-data:/env/.local    # vim.pack plugins, zellij sessions, token, sentinels, tailscale state
       - nixbox-cache:/env/.cache   # neovim + zellij caches
+    # With nixbox.tailscale.enable, pass an auth key (userspace networking — no
+    # extra caps needed) and drop network_mode: host:
+    # environment:
+    #   - TS_AUTHKEY=tskey-auth-...
     restart: unless-stopped
 
 volumes:
