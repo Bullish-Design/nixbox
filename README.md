@@ -171,6 +171,25 @@ scripts/sync-config.sh            # re-vendor nvim/ + zellij/ (preserves plugins
 | `nvim` / `nv` | Neovim with the vendored config. |
 | `znv` | Zellij with the `nvim` layout. |
 
+## Demos (Playwright addon)
+
+An opt-in dev addon (`nixbox.playwright.enable`) drives the *live* web terminal
+in a headless browser and records GIFs — end-to-end proof the whole stack works
+in a real browser (token auth → zellij web session → neovim editing a file):
+
+```bash
+cd demos
+devenv shell -- ./run.sh        # writes demos/output/*.gif
+```
+
+It pre-grants the zellij plugin permissions, warms neovim's plugins, then drives
+chromium through the session wizard into the `nvim` layout and captures the
+result (`modules/playwright/demo.cjs`; customise scenarios with `DEMO_STEPS`).
+The addon is kept in a **separate `demos/` environment** so the lean runtime /
+container never pulls in node + chromium. CI runs it and uploads the GIFs as
+artifacts. See [`demos/`](demos) and the fixtures in
+[`tests/fixtures`](tests/fixtures).
+
 ## Testing / CI
 
 `nixbox-selfcheck` is a self-contained verification you can run anywhere

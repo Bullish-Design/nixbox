@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=https://devenv.sh/devenv.schema.json
+#
+# The Playwright demo environment: imports nixbox and turns on the (heavy,
+# opt-in) playwright addon. Kept separate from the repo-root devenv so the lean
+# runtime / container image never pulls in chromium + node.
+inputs:
+  nixpkgs:
+    url: github:cachix/devenv-nixpkgs/rolling
+  nixbox:
+    url: path:../modules
+    flake: false
+
+imports:
+  - nixbox

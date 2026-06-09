@@ -53,3 +53,32 @@ jobs:
       # plugin derivations end-to-end).
       - name: devenv container build nixbox
         run: devenv container build nixbox
+
+  demos:
+    # Heavy (chromium + neovim plugin warm-up); the end-to-end proof that the web
+    # terminal really renders nvim in a browser. Uploads the GIFs as artifacts.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: cachix/install-nix-action@v30
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+            extra-substituters = https://devenv.cachix.org
+            extra-trusted-public-keys = devenv.cachix.org-1:w1cLUi8dv3hnoSPGAuibQv+f9TZLr6cv/Hm9XgU50cw=
+
+      - name: Install devenv
+        run: nix profile install nixpkgs#devenv
+
+      - name: Capture demo GIFs
+        working-directory: demos
+        run: devenv shell -- ./run.sh
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nixbox-demo-gifs
+          path: demos/output/*.gif
+          if-no-files-found: warn

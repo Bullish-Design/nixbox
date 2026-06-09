@@ -118,6 +118,23 @@ web_server_port ${toString cfg.webPort}
 KDL
   '';
 
+  # Pre-granted zellij plugin permissions, keyed by the (stable) vendored plugin
+  # store paths. Dropped into a demo's XDG_CACHE so the web session manager and
+  # nvim layout load without "Allow? (y/n)" prompts — needed for deterministic
+  # headless Playwright capture.
+  zellijPermissions = pkgs.writeText "nixbox-zellij-permissions.kdl" (
+    lib.concatMapStrings
+      (w: ''
+        "${zellijPlugins}/${w}" {
+            ReadApplicationState
+            ChangeApplicationState
+            ReadCliPipes
+            MessageAndLaunchOtherPlugins
+        }
+      '')
+      [ "attention.wasm" "autolock.wasm" "zjstatus.wasm" "bookmarks.wasm" ]
+  );
+
   # Optional zelligate manifest interop (same JSON shape as
   # zelligate/modules/devenv.nix) — only emitted when `name` is set.
   manifestJson = builtins.toJSON {
@@ -200,6 +217,11 @@ in
         description = "Extra arguments passed to `tailscale up`.";
       };
     };
+
+    playwright.enable = lib.mkEnableOption ''
+      the Playwright demo/CI addon: headless-browser capture of the web terminal
+      into GIFs (`nixbox-demo`). Pulls in nodejs + playwright + chromium + ffmpeg
+    '';
   };
 
   config = lib.mkMerge [
@@ -394,6 +416,71 @@ JSON
 
         echo "nixbox: ${if cfg.tailscale.funnel then "funnel" else "serve"} -> http://127.0.0.1:${toString cfg.webPort}"
         "$ts" --socket="$sock" ${if cfg.tailscale.funnel then "funnel" else "serve"} --bg ${toString cfg.webPort}
+      '';
+    })
+
+    # Optional Playwright addon: capture the live web terminal into GIFs.
+    # `nixbox-demo <name> [fixtureDir]` boots the web server (plugin permissions
+    # pre-granted), drives a headless chromium through the session wizard into
+    # nvim, records video, and renders a GIF. DEMO_STEPS (JSON) customises the
+    # in-nvim scenario; see modules/playwright/demo.cjs.
+    (lib.mkIf (cfg.enable && cfg.playwright.enable) {
+      packages = [ pkgs.nodejs pkgs.playwright-test pkgs.ffmpeg ];
+
+      # Playwright env (only present when the addon is enabled), in the devenv
+      # `env` block for discoverability — same idiom as the browsee project. The
+      # nix-provided browsers are used as-is; host-requirement validation is
+      # skipped because the browsers are already the patched Nix builds.
+      env = {
+        PLAYWRIGHT_BROWSERS_PATH = "${pkgs.playwright-driver.browsers}";
+        PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS = "true";
+      };
+
+      scripts.nixbox-demo.exec = ''
+        set -uo pipefail
+        # NODE_PATH lets the vendored CommonJS driver `require('@playwright/test')`
+        # from the Nix package (scoped to this script so the dev shell's node
+        # resolution is untouched).
+        export NODE_PATH="${pkgs.playwright-test}/lib/node_modules"
+        node=${pkgs.nodejs}/bin/node
+        ffmpeg=${pkgs.ffmpeg}/bin/ffmpeg
+        port=${toString cfg.webPort}
+
+        name="''${1:-demo}"
+        fixture="''${2:-$PWD}"
+        outdir="''${DEMO_OUTDIR:-''${DEVENV_ROOT:-$PWD}/demos}"
+        state="''${DEMO_STATE:-''${DEVENV_ROOT:-$PWD}/.nixbox/demo-home}"
+        mkdir -p "$outdir" "$state/data" "$state/cache/zellij"
+
+        export HOME="$state" XDG_DATA_HOME="$state/data" XDG_CACHE_HOME="$state/cache"
+        # Pre-grant plugin permissions so the headless session loads prompt-free.
+        cp -f "${zellijPermissions}" "$XDG_CACHE_HOME/zellij/permissions.kdl"
+
+        echo "nixbox-demo: warming neovim plugins (first run only)…"
+        nixbox-preseed || echo "nixbox-demo: preseed failed — nvim may show the install screen"
+
+        tok=$(nixbox-token 2>&1 | grep -oE '[0-9a-f]{8}-[0-9a-f-]+' | head -1)
+        [ -n "$tok" ] || { echo "nixbox-demo: could not create a web token"; exit 1; }
+
+        work=$(mktemp -d)
+        setsid bash -c "cd \"$fixture\" && exec nixbox-web" >"$work/web.log" 2>&1 &
+        webpid=$!
+        cleanup(){
+          ${zellij}/bin/zellij --config "${zellijWebConfig}" web --stop >/dev/null 2>&1 || true
+          kill -TERM -"$webpid" 2>/dev/null || kill "$webpid" 2>/dev/null || true
+        }
+        trap cleanup EXIT
+        for _ in $(seq 1 30); do (exec 3<>/dev/tcp/127.0.0.1/$port) 2>/dev/null && break; sleep 1; done
+
+        echo "nixbox-demo: capturing '$name' (fixture: $fixture)…"
+        NIXBOX_TOKEN="$tok" NIXBOX_WEB_PORT="$port" DEMO_OUT="$work" DEMO_SESSION="$name" \
+          "$node" "${./playwright/demo.cjs}" || { echo "nixbox-demo: capture failed"; tail -5 "$work/web.log"; exit 1; }
+
+        webm=$(ls "$work"/*.webm 2>/dev/null | head -1)
+        [ -n "$webm" ] || { echo "nixbox-demo: no video recorded"; exit 1; }
+        "$ffmpeg" -y -i "$webm" -vf "fps=12,scale=820:-1:flags=lanczos,palettegen=stats_mode=diff" "$work/pal.png" >/dev/null 2>&1
+        "$ffmpeg" -y -i "$webm" -i "$work/pal.png" -lavfi "fps=12,scale=820:-1:flags=lanczos[x];[x][1:v]paletteuse=dither=bayer" "$outdir/$name.gif" >/dev/null 2>&1
+        echo "nixbox-demo: wrote $outdir/$name.gif ($(du -h "$outdir/$name.gif" 2>/dev/null | cut -f1))"
       '';
     })
   ];
