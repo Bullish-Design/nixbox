@@ -3,6 +3,13 @@
 // modules/devenv.nix, nixbox.playwright.enable). See the project README and the
 // "zellij web + Playwright" notes for the flow this automates.
 //
+// NOTE: this is an artifact generator, NOT the verification layer. The session-wizard
+// walk below is intentionally timing-based (fixed sleeps + blind Enter/Escape) and
+// will break on zellij UI-flow changes / flake under CI load — a failed GIF job is not
+// a product regression. The real "does the web terminal work" check is
+// `nixbox-selfcheck` (live bind + serve). Only invest in selector-based waits here if
+// the GIF job starts failing regularly.
+//
 // Env in:
 //   NIXBOX_TOKEN      zellij web login token (required)
 //   NIXBOX_WEB_PORT   web server port (default 8920)

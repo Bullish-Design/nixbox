@@ -73,8 +73,9 @@ nixbox-start       # preseed plugins (first run) + start the web server
 
 `nixbox-start` is the entrypoint: it runs `nixbox-preseed` once (clones the
 `vim.pack` plugins — needs network the first time) and bootstraps a web login
-token, then starts the server. Open `http://127.0.0.1:8920` (or front it via
-zelligate / `tailscale serve`).
+token, then starts the server. The token is saved to a `0600` file (not printed
+to the logs); reveal it with `nixbox-token --show`. Open `http://127.0.0.1:8920`
+(or front it via zelligate / `tailscale serve`) and paste the token to log in.
 
 ## Build & run the container image
 
@@ -144,8 +145,9 @@ The image runs without network at startup once warmed:
 
 - **Zellij plugins** (`autolock`, `attention`, `bookmarks`, `zjstatus`) are
   vendored as `.wasm` under `modules/config/zellij/plugins/`; the module rewrites
-  the config's plugin URLs to local `file:` paths. Refresh with
-  `scripts/fetch-zellij-plugins.sh`.
+  the config's plugin URLs to local `file:` paths. The set is defined once in
+  [`modules/zellij/plugins.nix`](modules/zellij/plugins.nix) — add/remove a plugin
+  there, then refresh the binaries with `scripts/fetch-zellij-plugins.sh`.
 - **Neovim `vim.pack` plugins** are fetched once by `nixbox-preseed` and persisted
   to the data volume.
 - **Native plugin binaries** (e.g. `fff`'s Rust backend) are built during preseed
@@ -174,7 +176,7 @@ scripts/sync-config.sh            # re-vendor nvim/ + zellij/ (preserves plugins
 |---|---|
 | `nixbox-start` | Entrypoint: preseed (once) + token bootstrap + (optional tailscale) + web server. |
 | `nixbox-web` | Start the zellij web server (`bind:webPort`); bootstraps a token. |
-| `nixbox-token` | Create a zellij web login token. |
+| `nixbox-token` | Create a zellij web login token, saved to a `0600` file (`nixbox-token --show` reveals it). |
 | `nixbox-preseed` | Clone `vim.pack` plugins + treesitter (one-off, needs network). |
 | `nixbox-tailscale` | (when `tailscale.enable`) bring up tailscaled + `tailscale serve`. |
 | `nixbox-selfcheck` | Verify the setup: static invariants + a live "web server binds & serves HTTP" check. |
