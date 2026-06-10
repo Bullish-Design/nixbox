@@ -129,7 +129,7 @@ Use the override in this directory (it switches off `network_mode: host` so the
 container's *own* userspace Tailscale is the network path, and injects the key):
 ```bash
 export TS_AUTHKEY=tskey-auth-xxxxxxitsasecret
-docker compose -f compose.yaml -f 01-deploy-and-tailscale/compose.tailscale.yaml up
+docker compose -f compose.yaml -f .scratch/projects/01-deploy-and-tailscale/compose.tailscale.yaml up
 ```
 Watch for:
 ```
@@ -169,7 +169,7 @@ machine, over Tailscale.
 
 ### B6. Teardown
 ```bash
-docker compose -f compose.yaml -f 01-deploy-and-tailscale/compose.tailscale.yaml down
+docker compose -f compose.yaml -f .scratch/projects/01-deploy-and-tailscale/compose.tailscale.yaml down
 # revert devenv.nix (nixbox.tailscale.enable = false) if you don't want it in the default image
 ```
 
