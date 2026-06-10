@@ -55,6 +55,8 @@ imports:
   # Image size levers (see "Image size" below):
   # nixbox.lspServers = with pkgs; [ ty ruff nil lua-language-server ];
   # nixbox.allTreesitterGrammars = false;   # default; true bundles all (~+240MB)
+  # nixbox.nvimBuildTools.enable = true;    # default; rust+cc toolchain so native
+  #                                         # plugins (e.g. fff) self-build in preseed
 
   # Join a tailnet and serve the web port directly (see "Tailscale" below):
   # nixbox.tailscale.enable = true;
@@ -146,6 +148,14 @@ The image runs without network at startup once warmed:
   `scripts/fetch-zellij-plugins.sh`.
 - **Neovim `vim.pack` plugins** are fetched once by `nixbox-preseed` and persisted
   to the data volume.
+- **Native plugin binaries** (e.g. `fff`'s Rust backend) are built during preseed
+  using the toolchain from `nixbox.nvimBuildTools` (rust + cc + make, declared so
+  it exists in the container rather than leaking from the host). Disable it to
+  shrink the image if you don't use those plugins.
+
+The Neovim wrapper also sets the config's `LOCI_OBSIDIAN_VAULT` hook to a writable
+dir when the default vault is missing, so `obsidian.nvim` doesn't abort startup in
+a fresh container (a no-op on a machine that already has the vault).
 
 This is what makes nixbox usable inside fornix's default-deny sandbox — see
 [`examples/fornix`](examples/fornix).

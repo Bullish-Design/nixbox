@@ -79,6 +79,16 @@ let
   # Neovim wrapper: same shape as the dotfiles' writeShellScriptBin "nvim".
   nvimWrapper = pkgs.writeShellScriptBin "nvim" ''
     export LD_LIBRARY_PATH="${pkgs.sqlite.out}/lib''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    # Clean-env fallback: the config configures obsidian.nvim with a vault at
+    # ~/Documents/Notes and aborts init if it's missing. In a container/demo
+    # that path doesn't exist, so point the config's own LOCI_OBSIDIAN_VAULT hook
+    # at a writable dir. No-op on a real machine that has the vault (or sets the
+    # var), so the user's config is respected. (Lives here, not in the vendored
+    # config, so it survives `scripts/sync-config.sh`.)
+    if [ -z "''${LOCI_OBSIDIAN_VAULT:-}" ] && [ ! -d "$HOME/Documents/Notes" ]; then
+      export LOCI_OBSIDIAN_VAULT="''${XDG_DATA_HOME:-$HOME/.local/share}/nixbox/notes"
+      mkdir -p "$LOCI_OBSIDIAN_VAULT"
+    fi
     exec ${neovim}/bin/nvim -u "${nvimConfig}/init.lua" \
       --cmd "set rtp^=${nvimConfig}" \
       --cmd "set rtp+=${nvimConfig}/after" \
@@ -195,6 +205,19 @@ in
       '';
     };
 
+    nvimBuildTools.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = ''
+        Provide a reproducible build toolchain (rust + a C compiler + make +
+        pkg-config) so neovim plugins with native components can compile their
+        binaries during `nixbox-preseed` (e.g. fff's Rust backend). Without this
+        the env silently relies on a host-leaked toolchain that is absent in the
+        container, so those plugins error at startup. Disabling it shrinks the
+        image (~the rust toolchain) but breaks plugins that need to self-build.
+      '';
+    };
+
     tailscale = {
       enable = lib.mkEnableOption "joining a tailnet and serving the web port over Tailscale (userspace networking)";
 
@@ -232,7 +255,16 @@ in
       znv
       zellij
       pkgs.git
-    ] ++ cfg.lspServers;
+    ] ++ cfg.lspServers
+    # Reproducible toolchain for plugins that build native binaries on first run
+    # (declared explicitly so it exists in the container, not just via host PATH).
+    ++ lib.optionals cfg.nvimBuildTools.enable [
+      pkgs.rustc
+      pkgs.cargo
+      pkgs.gcc
+      pkgs.gnumake
+      pkgs.pkg-config
+    ];
 
     env.EDITOR = "nvim";
 
@@ -274,6 +306,14 @@ in
       # a headless launch triggers that, then update pins them to locked versions.
       ${nvimWrapper}/bin/nvim --headless "+qa!" || true
       ${nvimWrapper}/bin/nvim --headless "+lua pcall(vim.pack.update)" "+qa!" || true
+      ${lib.optionalString cfg.nvimBuildTools.enable ''
+      # Build native plugin binaries that don't ship/download a prebuilt (fff's
+      # Rust backend). Needs the toolchain (nvimBuildTools); best-effort.
+      echo "nixbox: building native plugin binaries (fff)…"
+      ${nvimWrapper}/bin/nvim --headless \
+        "+lua pcall(function() require('fff.download').download_or_build_binary() end)" \
+        "+qa!" || true
+      ''}
       mkdir -p "$(dirname "$seeded")" && touch "$seeded"
       echo "nixbox: preseed complete"
     '';
