@@ -1,0 +1,14 @@
+# Tailscale override for the deploy walkthrough (Part B).
+#
+#   export TS_AUTHKEY=tskey-auth-...
+#   docker compose -f compose.yaml -f 01-deploy-and-tailscale/compose.tailscale.yaml up
+#
+# Switches off host networking so the container's *own* userspace Tailscale is the
+# network path (the terminal is reachable over the tailnet via `tailscale serve`,
+# not on the host's localhost), and injects the auth key. Requires the image built
+# with `nixbox.tailscale.enable = true` (see the walkthrough, B2).
+services:
+  nixbox:
+    network_mode: bridge
+    environment:
+      - TS_AUTHKEY=${TS_AUTHKEY:?set TS_AUTHKEY to a tskey-auth-... value}
