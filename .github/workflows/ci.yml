@@ -1,5 +1,8 @@
 name: CI
 
+# These three jobs run the same devenv stages as `./scripts/ci.sh` (the local,
+# devenv-native runner). Keep them in sync.
+
 on:
   push:
   pull_request:

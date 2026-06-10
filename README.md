@@ -205,9 +205,23 @@ artifacts. See [`demos/`](demos) and the fixtures in
 
 Step 4 is the important one: the "web server printed *started* but never bound"
 bug is only catchable by really connecting to it. It needs no network (plugins
-are vendored) and leaves no stray server. The GitHub Actions workflow
-(`.github/workflows/ci.yml`) runs the self-check and a `devenv container build`
-on every push.
+are vendored) and leaves no stray server.
+
+### Run CI locally
+
+The GitHub Actions workflow (`.github/workflows/ci.yml`) runs three stages on
+every push: the self-check, a `devenv container build`, and the demo GIFs. Run
+the same stages locally — devenv-native, against your warm Nix cache, no Docker
+or `act` — with:
+
+```bash
+./scripts/ci.sh            # selfcheck + container build
+./scripts/ci.sh --quick    # selfcheck only (fast inner loop)
+./scripts/ci.sh --demos    # + capture demo GIFs (heavy)
+```
+
+Each stage is just a top-level `devenv` command, so the local run and CI execute
+the same logic.
 
 ## Scope: the isolation model
 
