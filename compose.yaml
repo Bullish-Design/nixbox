@@ -19,7 +19,7 @@
 # does, or set nixbox.bind = "0.0.0.0" with --cert/--key.
 services:
   nixbox:
-    image: nixbox:0.2.0
+    image: nixbox:latest
     network_mode: host
     volumes:
       - nixbox-data:/env/.local    # vim.pack plugins, zellij sessions, token, sentinels, tailscale state
