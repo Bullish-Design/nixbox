@@ -18,6 +18,11 @@
 ## zellij/
 - `config.kdl`, `terminal-config.kdl`, `layouts/` copied verbatim.
 - **`plugins/`** is nixbox-owned (NOT from dotfiles): the vendored `.wasm`
-  plugin binaries (`scripts/fetch-zellij-plugins.sh`). `../devenv.nix` rewrites
-  the config's plugin URLs to local `file:` paths pointing at these, so zellij
-  never fetches plugins at runtime (works offline / under fornix).
+  plugin binaries (`scripts/fetch-zellij-plugins.sh`). `../zellij/default.nix`
+  rewrites the config's plugin URLs to local `file:` paths pointing at these, so
+  zellij never fetches plugins at runtime (works offline / under fornix).
+  - The plugin set is defined once in **`../zellij/plugins.nix`** (attr name =
+    vendored basename → upstream URL). The URL rewrite, the pre-granted
+    permissions, the fetch-script download list, and the selfcheck wasm count all
+    derive from it, so to add/remove a plugin you edit only that file and re-run
+    `scripts/fetch-zellij-plugins.sh`.

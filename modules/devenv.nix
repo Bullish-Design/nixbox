@@ -1,4 +1,5 @@
-# nixbox v0.5.0 — importable devenv module.
+# nixbox — importable devenv module. (Version is tracked in ../VERSION, not here,
+# so there's a single place to bump.)
 #
 # Provides a personal terminal-only interface: the vendored Neovim config
 # (config/nvim) running over a Zellij web server (config/zellij). Self-contained:
@@ -21,6 +22,10 @@ let
   cfg = config.nixbox;
   system = pkgs.stdenv.hostPlatform.system;
 
+  # Zellij packaging (pinned package + offline config + web config + permissions)
+  # lives in the ./zellij submodule, imported below. Reach its computed outputs here.
+  zCfg = config.nixbox.zellij;
+
   # --- Pinned package sets (match ~/.dotfiles) -----------------------------
   # Neovim 0.12.x for vim.pack support; revs/hashes lifted from the dotfiles
   # flake.lock so behaviour matches the user's daily driver exactly.
@@ -29,34 +34,10 @@ let
     sha256 = "sha256-30sZNZoA1cqF5JNO9fVX+wgiQYjB7HJqqJ4ztCDeBZE=";
   }) { inherit system; };
 
-  zellijPkgs = import (builtins.fetchTarball {
-    url = "https://github.com/nixos/nixpkgs/archive/265473c9181f3b18295d634c844bdf7761a18594.tar.gz";
-    sha256 = "sha256-UEkQrTl36JeCF1VJCyq0zCiSTwWDdiLYtUiCvRju7NA=";
-  }) { inherit system; };
-
   neovim = neovimPkgs.neovim;
-  zellij = zellijPkgs.zellij;
 
   # --- Vendored configs (in-store, path-independent) -----------------------
   nvimConfig = ./config/nvim;
-  zellijConfig = ./config/zellij;
-  zellijPlugins = ./config/zellij/plugins;
-
-  # Patched zellij config dir: the vendored config + layouts with the four
-  # plugin URLs rewritten to local `file:` paths (the vendored wasm). Zellij
-  # then never fetches plugins at runtime, so it works offline and inside
-  # fornix's default-deny sandbox. Used by both `znv` and the web config.
-  zellijConfigPatched = pkgs.runCommand "nixbox-zellij-config" { } ''
-    cp -r ${zellijConfig} "$out"
-    chmod -R +w "$out"
-    rm -rf "$out/plugins"
-    f="file:${zellijPlugins}"
-    find "$out" -name '*.kdl' -print0 | xargs -0 sed -i \
-      -e "s|https://github.com/fresh2dev/zellij-autolock/releases/latest/download/zellij-autolock.wasm|$f/autolock.wasm|g" \
-      -e "s|https://github.com/KiryuuLight/zellij-attention/releases/latest/download/zellij-attention.wasm|$f/attention.wasm|g" \
-      -e "s|https://github.com/yaroslavborbat/zellij-bookmarks/releases/latest/download/zellij-bookmarks.wasm|$f/bookmarks.wasm|g" \
-      -e "s|https://github.com/dj95/zjstatus/releases/latest/download/zjstatus.wasm|$f/zjstatus.wasm|g"
-  '';
 
   # Treesitter grammars provided from Nix. `withAllGrammars` is ~300 MB; by
   # default we bundle a curated common set (covers the config's ftplugin
@@ -104,46 +85,8 @@ let
 
   # `znv` = zellij with the nvim layout (mirrors the dotfiles wrapper).
   znv = pkgs.writeShellScriptBin "znv" ''
-    exec ${zellij}/bin/zellij --config-dir "${zellijConfigPatched}" --layout nvim "$@"
+    exec ${zCfg.package}/bin/zellij --config-dir "${zCfg.patchedConfig}" --layout nvim "$@"
   '';
-
-  # Web-enabled zellij config *file*. Two things matter (learned from
-  # zelligate's src/zelligate/zellij.py and direct testing):
-  #   * the web server is enabled by config directives, not CLI flags; and
-  #   * it must be passed via `--config <FILE>`, not `--config-dir <DIR>` —
-  #     zellij writes state into a config-dir, which fails on a read-only store
-  #     path and leaves the server printing "started" without ever binding.
-  # `layout_dir` points back at the vendored layouts so `default_layout "nvim"`
-  # still resolves.
-  zellijWebConfig = pkgs.runCommand "nixbox-zellij-web.kdl" { } ''
-    cp ${zellijConfigPatched}/config.kdl "$out"
-    chmod +w "$out"
-    cat >> "$out" <<KDL
-
-// nixbox: web server (generated)
-layout_dir "${zellijConfigPatched}/layouts"
-web_server true
-web_server_ip "${cfg.bind}"
-web_server_port ${toString cfg.webPort}
-KDL
-  '';
-
-  # Pre-granted zellij plugin permissions, keyed by the (stable) vendored plugin
-  # store paths. Dropped into a demo's XDG_CACHE so the web session manager and
-  # nvim layout load without "Allow? (y/n)" prompts — needed for deterministic
-  # headless Playwright capture.
-  zellijPermissions = pkgs.writeText "nixbox-zellij-permissions.kdl" (
-    lib.concatMapStrings
-      (w: ''
-        "${zellijPlugins}/${w}" {
-            ReadApplicationState
-            ChangeApplicationState
-            ReadCliPipes
-            MessageAndLaunchOtherPlugins
-        }
-      '')
-      [ "attention.wasm" "autolock.wasm" "zjstatus.wasm" "bookmarks.wasm" ]
-  );
 
   # Optional zelligate manifest interop (same JSON shape as
   # zelligate/modules/devenv.nix) — only emitted when `name` is set.
@@ -154,6 +97,8 @@ KDL
   };
 in
 {
+  imports = [ ./zellij ];
+
   options.nixbox = {
     enable = lib.mkEnableOption "the nixbox terminal interface (neovim over a zellij web server)";
 
@@ -253,7 +198,7 @@ in
       nvimWrapper
       nvAlias
       znv
-      zellij
+      zCfg.package
       pkgs.git
     ] ++ cfg.lspServers
     # Reproducible toolchain for plugins that build native binaries on first run
@@ -270,26 +215,55 @@ in
 
     # Launch the terminal interface: a zellij web server bound to `bind:webPort`,
     # using the patched zellij config (default_layout "nvim" -> opens neovim).
-    # Bootstraps a web login token on first run (sentinel on the data dir, so a
-    # persisted volume gets exactly one token), then starts the server.
+    # Bootstraps a web login token on first run (the token *file* on the data dir is
+    # the sentinel, so a persisted volume gets exactly one token), then starts the
+    # server. The token is written to a 0600 file, never printed — under `processes`
+    # / the container entrypoint stdout goes to the log, and the token is the only
+    # auth on the terminal. Reveal it with `nixbox-token --show`.
     scripts.nixbox-web.exec = ''
       set -uo pipefail
-      tokmark="''${XDG_DATA_HOME:-$HOME/.local/share}/nixbox/web-token-created"
-      if [ ! -f "$tokmark" ]; then
-        echo "nixbox: no login token yet — creating one (shown once):"
-        if ${zellij}/bin/zellij --config "${zellijWebConfig}" web --create-token; then
-          mkdir -p "$(dirname "$tokmark")" && touch "$tokmark"
-        else
-          echo "nixbox: token creation failed; create one later with 'nixbox-token'"
-        fi
+      tokfile="''${XDG_DATA_HOME:-$HOME/.local/share}/nixbox/web-token"
+      if [ ! -f "$tokfile" ]; then
+        echo "nixbox: no login token yet — creating one..."
+        nixbox-token || echo "nixbox: token creation failed; create one later with 'nixbox-token'"
       fi
       echo "nixbox: starting zellij web on ${cfg.bind}:${toString cfg.webPort}"
-      exec ${zellij}/bin/zellij --config "${zellijWebConfig}" web
+      exec ${zCfg.package}/bin/zellij --config "${zCfg.webConfig}" web
     '';
 
-    # Create a web login token (zellij requires one to attach over the web).
+    # Manage the web login token (zellij requires one to attach over the web).
+    #   nixbox-token            create a token, save it to a 0600 file, print only its path
+    #   nixbox-token --show     print the saved token (the one explicit reveal path)
+    #   nixbox-token -- <args>  pass <args> straight through to `zellij web` (escape hatch)
     scripts.nixbox-token.exec = ''
-      exec ${zellij}/bin/zellij --config "${zellijWebConfig}" web --create-token "$@"
+      set -uo pipefail
+      tokfile="''${XDG_DATA_HOME:-$HOME/.local/share}/nixbox/web-token"
+      case "''${1:-}" in
+        --show)
+          if [ -f "$tokfile" ]; then cat "$tokfile"; else
+            echo "nixbox: no saved token; run 'nixbox-token' to create one" >&2; exit 1
+          fi
+          ;;
+        --)
+          shift
+          exec ${zCfg.package}/bin/zellij --config "${zCfg.webConfig}" web "$@"
+          ;;
+        ""|--create|--bootstrap)
+          mkdir -p "$(dirname "$tokfile")"
+          out=$(${zCfg.package}/bin/zellij --config "${zCfg.webConfig}" web --create-token) || {
+            echo "nixbox: token creation failed" >&2; exit 1; }
+          # zellij prints the token (UUID-shaped) on creation; capture it rather than
+          # letting it land in stdout/logs. This regex is the single point of coupling
+          # to zellij's token format (was previously duplicated in nixbox-demo).
+          tok=$(printf '%s\n' "$out" | grep -oE '[0-9a-f]{8}-[0-9a-f-]+' | head -1)
+          [ -n "$tok" ] || { echo "nixbox: could not parse created token" >&2; exit 1; }
+          (umask 077; printf '%s\n' "$tok" > "$tokfile")
+          echo "nixbox: web token written to $tokfile (chmod 600); reveal with 'nixbox-token --show'"
+          ;;
+        *)
+          echo "nixbox-token: unknown arg '$1' (use --show, or '-- <zellij web args>')" >&2; exit 2
+          ;;
+      esac
     '';
 
     # Pre-seed vim.pack plugins + treesitter so the first interactive launch is
@@ -304,6 +278,10 @@ in
       echo "nixbox: seeding neovim plugins (vim.pack) — needs network, one-off..."
       # init.lua calls vim.pack.add at startup, which clones missing plugins;
       # a headless launch triggers that, then update pins them to locked versions.
+      # NOTE: this assumes vim.pack.add clones synchronously during startup (so the
+      # clones are on disk before +qa! quits); the follow-up vim.pack.update
+      # reconciles if a clone lands late. If vim.pack ever clones asynchronously,
+      # replace the first +qa! with a wait on pack readiness before quitting.
       ${nvimWrapper}/bin/nvim --headless "+qa!" || true
       ${nvimWrapper}/bin/nvim --headless "+lua pcall(vim.pack.update)" "+qa!" || true
       ${lib.optionalString cfg.nvimBuildTools.enable ''
@@ -361,15 +339,18 @@ in
       if [ "$(printf '0.12\n%s\n' "$v" | sort -V | head -1)" = "0.12" ]; then pass "nvim $v"; else fail "nvim $v < 0.12"; fi
 
       echo "[3] zellij web config is offline (file: plugins, no https)"
-      if grep -q 'file:' "${zellijWebConfig}" && ! grep -q 'https://' "${zellijWebConfig}"; then
+      if grep -q 'file:' "${zCfg.webConfig}" && ! grep -q 'https://' "${zCfg.webConfig}"; then
         pass "plugin URLs rewritten to file:"
       else
         fail "plugin URLs not rewritten"
       fi
-      n=$(ls "${zellijPlugins}"/*.wasm 2>/dev/null | wc -l)
-      if [ "''${n:-0}" -ge 4 ]; then pass "$n vendored wasm present"; else fail "only ''${n:-0} wasm vendored"; fi
+      want=${toString zCfg.pluginCount}
+      n=$(ls "${zCfg.pluginDir}"/*.wasm 2>/dev/null | wc -l)
+      if [ "''${n:-0}" -eq "$want" ]; then pass "$n/$want vendored wasm present"; else fail "''${n:-0}/$want wasm vendored"; fi
 
       echo "[4] live: zellij web binds and serves on :$port"
+      # Connect to the configured bind (wildcard binds map to loopback as a dest).
+      checkhost=${if (cfg.bind == "0.0.0.0" || cfg.bind == "::" || cfg.bind == "") then "127.0.0.1" else "\"" + cfg.bind + "\""}
       home=$(mktemp -d)
       export HOME="$home" XDG_DATA_HOME="$home/data" XDG_CACHE_HOME="$home/cache"
       mkdir -p "$XDG_DATA_HOME" "$XDG_CACHE_HOME"
@@ -379,24 +360,24 @@ in
       setsid nixbox-web >"$home/web.log" 2>&1 &
       wpid=$!
       cleanup_web() {
-        ${zellij}/bin/zellij --config "${zellijWebConfig}" web --stop >/dev/null 2>&1 || true
+        ${zCfg.package}/bin/zellij --config "${zCfg.webConfig}" web --stop >/dev/null 2>&1 || true
         kill -TERM -"$wpid" 2>/dev/null || kill "$wpid" 2>/dev/null || true
         wait "$wpid" 2>/dev/null || true
       }
       trap cleanup_web EXIT
       bound=""
       for _ in $(seq 1 30); do
-        if (exec 3<>/dev/tcp/127.0.0.1/$port) 2>/dev/null; then bound=1; break; fi
+        if (exec 3<>/dev/tcp/$checkhost/$port) 2>/dev/null; then bound=1; break; fi
         sleep 1
       done
       if [ -n "$bound" ]; then
         pass "port $port bound (server is listening)"
-        resp=$( { exec 3<>/dev/tcp/127.0.0.1/$port; printf 'GET / HTTP/1.0\r\nHost: localhost\r\n\r\n' >&3; head -1 <&3; exec 3>&- 3<&-; } 2>/dev/null || true)
+        resp=$( { exec 3<>/dev/tcp/$checkhost/$port; printf 'GET / HTTP/1.0\r\nHost: localhost\r\n\r\n' >&3; head -1 <&3; exec 3>&- 3<&-; } 2>/dev/null || true)
         case "$resp" in
           HTTP/*\ [23]*) pass "web responds: $(echo "$resp" | tr -d '\r')" ;;
           *) fail "unexpected web response: '$(echo "$resp" | tr -d '\r')'" ;;
         esac
-        if [ -f "$XDG_DATA_HOME/nixbox/web-token-created" ]; then pass "login token bootstrapped"; else fail "no token sentinel"; fi
+        if [ -f "$XDG_DATA_HOME/nixbox/web-token" ]; then pass "login token bootstrapped"; else fail "no token file"; fi
       else
         fail "web server never bound on :$port"; tail -5 "$home/web.log" 2>/dev/null || true
       fi
@@ -427,6 +408,11 @@ JSON
     (lib.mkIf (cfg.enable && cfg.tailscale.enable) {
       packages = [ pkgs.tailscale ];
 
+      # NOTE: intended for the container entrypoint — one tailscaled for the box's
+      # lifetime. tailscaled is backgrounded and not reaped here; the socket `status`
+      # probe below is the only guard against a duplicate daemon, which is racy under
+      # repeated invocation on a long-lived host. Add a pidfile guard if you start
+      # running this outside the container.
       scripts.nixbox-tailscale.exec = ''
         set -uo pipefail
         ts=${pkgs.tailscale}/bin/tailscale
@@ -494,19 +480,22 @@ JSON
 
         export HOME="$state" XDG_DATA_HOME="$state/data" XDG_CACHE_HOME="$state/cache"
         # Pre-grant plugin permissions so the headless session loads prompt-free.
-        cp -f "${zellijPermissions}" "$XDG_CACHE_HOME/zellij/permissions.kdl"
+        cp -f "${zCfg.permissions}" "$XDG_CACHE_HOME/zellij/permissions.kdl"
 
         echo "nixbox-demo: warming neovim plugins (first run only)…"
         nixbox-preseed || echo "nixbox-demo: preseed failed — nvim may show the install screen"
 
-        tok=$(nixbox-token 2>&1 | grep -oE '[0-9a-f]{8}-[0-9a-f-]+' | head -1)
-        [ -n "$tok" ] || { echo "nixbox-demo: could not create a web token"; exit 1; }
+        # Create a fresh token and read it back via --show (token parsing now lives in
+        # nixbox-token, so the demo isn't coupled to zellij's token format).
+        nixbox-token >/dev/null || { echo "nixbox-demo: could not create a web token"; exit 1; }
+        tok=$(nixbox-token --show 2>/dev/null)
+        [ -n "$tok" ] || { echo "nixbox-demo: could not read the web token"; exit 1; }
 
         work=$(mktemp -d)
         setsid bash -c "cd \"$fixture\" && exec nixbox-web" >"$work/web.log" 2>&1 &
         webpid=$!
         cleanup(){
-          ${zellij}/bin/zellij --config "${zellijWebConfig}" web --stop >/dev/null 2>&1 || true
+          ${zCfg.package}/bin/zellij --config "${zCfg.webConfig}" web --stop >/dev/null 2>&1 || true
           kill -TERM -"$webpid" 2>/dev/null || kill "$webpid" 2>/dev/null || true
         }
         trap cleanup EXIT
